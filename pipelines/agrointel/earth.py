@@ -183,16 +183,28 @@ NDVI_PALETTE = ["8c6842", "b8985f", "d6c470", "a0be58", "5c9c46", "267034", "124
 ANOM_PALETTE = ["a6611a", "dfc27d", "f5f5f5", "80cdc1", "018571"]
 
 
-def thumbnail(img: ee.Image, geom: ee.Geometry, out: Path, dims: int = 720) -> list[list[float]]:
-    """Save a clipped PNG and return its Leaflet bounds [[south, west], [north, east]]."""
-    bounds = geom.bounds()
-    url = img.clip(geom).getThumbURL({"region": bounds, "dimensions": dims, "format": "png", "crs": "EPSG:4326"})
+def _bbox(geometry: dict) -> list[float]:
+    """[west, south, east, north] of a GeoJSON Polygon or MultiPolygon, computed locally."""
+    polys = geometry["coordinates"] if geometry["type"] == "MultiPolygon" else [geometry["coordinates"]]
+    xs = [p[0] for poly in polys for ring in poly for p in ring]
+    ys = [p[1] for poly in polys for ring in poly for p in ring]
+    return [min(xs), min(ys), max(xs), max(ys)]
+
+
+def thumbnail(img: ee.Image, geometry: dict, out: Path, dims: int = 720) -> list[list[float]]:
+    """Save a PNG clipped to the region and return its Leaflet bounds [[south, west], [north, east]].
+
+    The bounding box is built client-side: getThumbURL needs a region it can
+    serialise, which a server-computed geometry.bounds() is not.
+    """
+    w, s, e, n = _bbox(geometry)
+    region = ee.Geometry.Rectangle([w, s, e, n], "EPSG:4326", False)
+    url = img.clip(ee.Geometry(geometry)).getThumbURL(
+        {"region": region, "dimensions": dims, "format": "png", "crs": "EPSG:4326"})
     out.parent.mkdir(parents=True, exist_ok=True)
     with urllib.request.urlopen(url, timeout=180) as r:
         out.write_bytes(r.read())
-    ring = bounds.coordinates().get(0).getInfo()
-    xs, ys = [p[0] for p in ring], [p[1] for p in ring]
-    return [[min(ys), min(xs)], [max(ys), max(xs)]]
+    return [[s, w], [n, e]]
 
 
 def region_maps(geojson: dict, out_dir: Path, water_year: int, water_mon: int) -> dict:
@@ -209,11 +221,10 @@ def region_maps(geojson: dict, out_dir: Path, water_year: int, water_mon: int) -
     errors = 0
     for f in geojson["features"]:
         key = f["properties"]["key"]
-        geom = ee.Geometry(f["geometry"])
         entry = {}
         for layer, im in vis.items():
             try:
-                entry["bounds"] = thumbnail(im, geom, out_dir / f"{key}_{layer}.png")
+                entry["bounds"] = thumbnail(im, f["geometry"], out_dir / f"{key}_{layer}.png")
                 entry[layer] = True
             except Exception as e:  # keep going: one failed image should not lose the rest
                 errors += 1

@@ -215,8 +215,12 @@ def crop_suitability(annual_rain: float, mean_temp: float, season_days: float | 
         ls = 1.0 if season_days is None else _trap(season_days, c["los"], 400, 30)
         wet = _trap(annual_rain, 0, c["max_annual"], 250) if c.get("max_annual") else 1.0  # too wet a climate
         score = 100 * rs * ts * ls * wet * (0.32 if c.get("forest") and not forest_zone else 1.0)
-        out.append({"key": c["key"], "name": c["name"], "score": round(score), "class": suit_class(score)})
-    return sorted(out, key=lambda d: -d["score"])
+        # tie-breaker: how close the climate sits to the middle of the crop's optimal ranges (1 = centre)
+        centre = 1 - 0.5 * (abs(rain - sum(c["rain"]) / 2) / ((c["rain"][1] - c["rain"][0]) / 2)
+                            + abs(mean_temp - sum(c["temp"]) / 2) / ((c["temp"][1] - c["temp"][0]) / 2))
+        out.append({"key": c["key"], "name": c["name"], "score": round(score), "class": suit_class(score),
+                    "fit": round(centre, 3)})
+    return sorted(out, key=lambda d: (-d["score"], -d["fit"]))
 
 
 def suit_class(s: float) -> str:

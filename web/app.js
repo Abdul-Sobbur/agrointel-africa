@@ -258,12 +258,13 @@ AFTER.crop.health = () => regionMap('m1', 'ndvi');
 
 VIEWS.crop.growth = R => { const n = R.ndvi, main = R.suitability.find(c => ['maize', 'sorghum', 'millet', 'rice', 'soy', 'gnut'].includes(c.key));
   const lm = n.latest_month, diff = lm ? (n.monthly[lm - 1] / n.normal[lm - 1] - 1) * 100 : null;
-  return P(`${verdict(chip(diff == null ? 'No data' : diff >= -5 ? 'On track' : 'Behind', diff == null ? 'neu' : diff >= -5 ? 'good' : 'warn'), `Greenness in ${n.year} against the usual curve`, `The green line tracks average greenness month by month. Where it sits below the dashed line, vegetation is behind or stressed. In ${esc(R.name)}, the best-suited field crop is ${esc(main.name.toLowerCase())}.`)}
+  return P(`${verdict(chip(diff == null ? 'No data' : diff >= -5 ? 'On track' : 'Behind', diff == null ? 'neu' : diff >= -5 ? 'good' : 'warn'), `Greenness in ${n.year} against the usual curve`, `The green line tracks average greenness month by month. Where it sits below the dashed line, vegetation is behind or stressed. `)}
     ${lineChart([{ vals: n.normal, cls: 'l-norm', dash: true }, { vals: n.monthly, cls: 'l-act', area: true, dot: true }], MON.map(m => m[0]), { fmt: v => fx(v, 2), min: 0, max: Math.max(.8, niceMax(Math.max(...n.normal.filter(isNum)))), title: 'Greenness through the season' })}
     <div class="key"><span><i class="line" style="background:var(--green)"></i>${n.year}</span><span><i class="line" style="background:var(--muted)"></i>2001–2020 average</span></div>`); };
 
-VIEWS.crop.suit = R => { const top = R.suitability[0];
-  return P(`${verdict(chip(suitName(top.class), suitCol(top.class)), `${esc(top.name)} fits ${esc(R.name)} best`, `Scores compare each crop's needs with the 1991–2020 climate here: ${fx(R.rain.annual_normal)} mm of rain a year, ${fx(R.temp.normal, 1)} °C average temperature${isNum(R.season.los_normal) ? ` and a ${R.season.los_normal}-day rainy season` : ''}. Soil is not yet included.`)}
+VIEWS.crop.suit = R => { const s1 = R.suitability.filter(c => c.class === 'S1'), top = R.suitability[0];
+  const head = s1.length > 1 ? `${s1.length} crops are highly suitable in ${esc(R.name)}` : s1.length === 1 ? `${esc(s1[0].name)} is the best fit for ${esc(R.name)}` : `No crop is highly suitable; ${esc(top.name.toLowerCase())} fits best`;
+  return P(`${verdict(chip(s1.length ? s1.map(c => c.name).slice(0, 4).join(', ') + (s1.length > 4 ? '…' : '') : suitName(top.class), s1.length ? 'good' : suitCol(top.class)), head, `Scores compare each crop's needs with the 1991–2020 climate here: ${fx(R.rain.annual_normal)} mm of rain a year, ${fx(R.temp.normal, 1)} °C average temperature${isNum(R.season.los_normal) ? ` and a ${R.season.los_normal}-day rainy season` : ''}. Soil is not yet included, so several crops can tie; within a class, crops are ordered by how close the climate sits to their ideal.`)}
     <div class="rows">${R.suitability.map(c => `<div class="row"><span class="nm">${esc(c.name)}</span><span class="sc">${c.class} · ${c.score}</span>${meter(c.score, suitCol(c.class))}</div>`).join('')}</div>
     <p class="note">Classes follow FAO land evaluation: S1 highly, S2 moderately, S3 marginally suitable, N not suitable.</p>`); };
 
