@@ -298,7 +298,7 @@ VIEWS.climate.drought = R => P(`${verdict(chip('SPI ' + sgn(R.rain.spi3_latest, 
 VIEWS.climate.ind = R => { const s = R.season, od = s.onset && isNum(s.onset_normal_doy) ? doyOf(s.onset) - s.onset_normal_doy : null, cd = s.cessation && isNum(s.cessation_normal_doy) ? doyOf(s.cessation) - s.cessation_normal_doy : null;
   const row = (a, b, c, d) => `<tr><td>${a}</td><td class="n">${b}</td><td class="n">${c}</td><td class="n">${d}</td></tr>`;
   const dd = v => v == null ? '–' : v === 0 ? 'On time' : v > 0 ? v + ' d late' : -v + ' d early';
-  return P(`${verdict(chip(s.onset ? 'Season under way' : 'Onset not detected', s.onset ? 'good' : 'warn'), od == null ? (s.onset ? 'Rains have started' : 'Waiting for the rains') : od === 0 ? 'Rains started on time' : `Rains started ${Math.abs(od)} days ${od > 0 ? 'late' : 'early'}`, `Detected from daily CHIRPS rainfall to ${fmtDate(s.last_date)}. Normals are the 1991–2020 averages.`)}
+  return P(`${verdict(chip(s.onset ? 'Season under way' : 'Onset not detected', s.onset ? 'good' : 'warn'), od == null ? (s.onset ? 'Rains have started' : 'Waiting for the rains') : od === 0 ? 'Rains started on time' : `Rains started ${Math.abs(od)} days ${od > 0 ? 'late' : 'early'}`, `Detected from daily CHIRPS rainfall to ${fmtDate(s.last_date)}. Normals are the 1998–2020 averages.`)}
   <div class="tbl-wrap"><table><thead><tr><th>Indicator</th><th class="n">${R.year}</th><th class="n">Normal</th><th class="n">Change</th></tr></thead><tbody>
   ${row('Onset of rains', fmtDay(s.onset), doyStr(s.onset_normal_doy), dd(od))}
   ${row('End of rains', s.cessation ? fmtDay(s.cessation) : 'Not yet', doyStr(s.cessation_normal_doy), dd(cd))}
@@ -438,9 +438,9 @@ function methodsView() {
     <p>AgroIntel Africa is a personal, noncommercial portfolio project. A Python pipeline runs weekly on GitHub Actions, queries Google Earth Engine, and writes the JSON and map images this site reads. ${m.sample ? '<strong>The data shown now is sample data generated offline; the pipeline has not run yet.</strong>' : `Last update: ${esc(m.generated)}; rainfall data to ${fmtDate(m.rain_latest)}.`}</p>
     <h3>Data sources</h3>
     <ul>
-      <li><strong>Rainfall:</strong> CHIRPS v3 daily (UCSB Climate Hazards Center), about 5.5 km, 1991 to present.</li>
+      <li><strong>Rainfall:</strong> CHIRPS v3 (UCSB Climate Hazards Center), about 5.5 km. Monthly totals from the version available since 1981; daily timing (onset, dry spells) from the IMERG-based daily version available since 1998.</li>
       <li><strong>Temperature:</strong> ERA5-Land monthly (ECMWF/Copernicus), about 11 km.</li>
-      <li><strong>Vegetation:</strong> MODIS Terra NDVI (MOD13Q1), 250 m, 16-day; Sentinel-2 surface reflectance, 10 m, for farms.</li>
+      <li><strong>Vegetation:</strong> MODIS Terra NDVI (MOD13Q1), 250 m, 16-day, with cloudy pixels removed; Sentinel-2 surface reflectance, 10 m, for farms.</li>
       <li><strong>Evapotranspiration:</strong> MODIS MOD16A2 potential evapotranspiration, 500 m.</li>
       <li><strong>Water:</strong> Sentinel-1 radar (VV backscatter below −16 dB) within the JRC Global Surface Water maximum extent; JRC occurrence for permanent water.</li>
       <li><strong>Forest:</strong> Hansen Global Forest Change v1.11 (tree cover 2000, loss year).</li>
@@ -448,11 +448,11 @@ function methodsView() {
     </ul>
     <h3>Methods</h3>
     <ul>
-      <li><strong>Normals</strong> use 1991–2020 (WMO standard); vegetation baselines use 2001–2020.</li>
+      <li><strong>Normals</strong> use 1991–2020 (WMO standard) for rainfall totals and temperature, 1998–2020 for daily season indicators, and 2001–2020 for vegetation.</li>
       <li><strong>SPI-3</strong> fits a gamma distribution, with a probability of zero rain, to three-month totals for each calendar month (McKee et al., 1993).</li>
       <li><strong>Onset</strong> is the first 3-day spell with at least 20 mm after 1 April (north) or 1 March (south), not followed by 7 dry days within 30 days. <strong>Cessation</strong> is the first wet day after 1 September (north) or 15 October (south) followed by less than 10 mm in 20 days.</li>
       <li><strong>VCI</strong> places each month's regional NDVI between the minimum and maximum for that month since 2001 (Kogan, 1995).</li>
-      <li><strong>Crop suitability</strong> scores annual rainfall, mean temperature and season length against simplified FAO ECOCROP ranges. Soil is not yet included.</li>
+      <li><strong>Crop suitability</strong> scores growing-season rainfall (annual crops) or annual rainfall (perennials), mean temperature and rainy-season length against simplified FAO ECOCROP ranges. Soil is not yet included.</li>
       <li><strong>Risk indices</strong> are transparent heuristics (0–100) combining SPI, rainfall anomaly, dry spells, surface water, NDVI trend and VCI. They are indicators for discussion, not validated predictions.</li>
     </ul>
     <h3>Limitations</h3>

@@ -27,12 +27,15 @@ def monthly_normals(monthly: dict[tuple[int, int], float], start=NORMAL_START, e
     return out
 
 
-def spi(monthly: dict[tuple[int, int], float], scale: int = 3, start=NORMAL_START, end=NORMAL_END) -> dict[tuple[int, int], float]:
+def spi(monthly: dict[tuple[int, int], float], scale: int = 3, start=NORMAL_START, end=NORMAL_END,
+        min_mean: float = 30.0) -> dict[tuple[int, int], float]:
     """Standardised Precipitation Index (McKee et al. 1993).
 
     Fits a gamma distribution, with a point mass at zero, to `scale`-month
     accumulations for each calendar month over the base period, then maps
-    every accumulation to a standard normal value.
+    every accumulation to a standard normal value. Months whose normal
+    accumulation is below `min_mean` mm (the heart of the dry season) are
+    skipped, because SPI is unreliable there.
     """
     keys = sorted(monthly)
     acc: dict[tuple[int, int], float] = {}
@@ -44,7 +47,7 @@ def spi(monthly: dict[tuple[int, int], float], scale: int = 3, start=NORMAL_STAR
     out: dict[tuple[int, int], float] = {}
     for m in range(1, 13):
         base = np.array([v for (y, mm), v in acc.items() if mm == m and start <= y <= end])
-        if len(base) < 10:
+        if len(base) < 10 or base.mean() < min_mean:
             continue
         nonzero = base[base > 0]
         q = 1 - len(nonzero) / len(base)
@@ -181,14 +184,27 @@ def _trap(v: float, lo: float, hi: float, tol: float) -> float:
     return math.exp(-((d / tol) ** 2))
 
 
-def crop_suitability(annual_rain: float, mean_temp: float, season_days: float | None, forest_zone: bool) -> list[dict]:
-    """Score 0-100 per crop from long-term climate; classes follow FAO S1/S2/S3/N."""
+def season_rain(normal: list[float], regime: str) -> float:
+    """Normal rainfall in the main growing season: May-Oct (north) or the wetter of Mar-Jul / Sep-Nov (south)."""
+    if regime == "uni":
+        return float(sum(normal[4:10]))
+    return float(max(sum(normal[2:7]), sum(normal[8:11])))
+
+
+def crop_suitability(annual_rain: float, mean_temp: float, season_days: float | None, forest_zone: bool,
+                     growing_rain: float | None = None) -> list[dict]:
+    """Score 0-100 per crop from long-term climate; classes follow FAO S1/S2/S3/N.
+
+    Annual crops are judged on growing-season rainfall (when given), perennials on annual rainfall.
+    """
     out = []
     for c in CROPS:
-        rs = _trap(annual_rain, *c["rain"], 0.3 * (c["rain"][1] - c["rain"][0]) + 120)
+        rain = growing_rain if (c["annual"] and growing_rain is not None) else annual_rain
+        rs = _trap(rain, *c["rain"], 0.3 * (c["rain"][1] - c["rain"][0]) + 120)
         ts = _trap(mean_temp, *c["temp"], 2.2)
-        ls = 1.0 if season_days is None else _trap(season_days, c["los"], 400, 25)
-        score = 100 * rs * ts * ls * (0.32 if c.get("forest") and not forest_zone else 1.0)
+        ls = 1.0 if season_days is None else _trap(season_days, c["los"], 400, 30)
+        wet = _trap(annual_rain, 0, c["max_annual"], 250) if c.get("max_annual") else 1.0  # too wet a climate
+        score = 100 * rs * ts * ls * wet * (0.32 if c.get("forest") and not forest_zone else 1.0)
         out.append({"key": c["key"], "name": c["name"], "score": round(score), "class": suit_class(score)})
     return sorted(out, key=lambda d: -d["score"])
 
@@ -199,16 +215,25 @@ def suit_class(s: float) -> str:
 
 # ---------------------------------------------------------------- risk
 def risk_scores(*, spi3_latest: float | None, season_anom_pct: float, dry_spells: int | None,
-                wettest_anom_pct: float, water_pct: float | None, ndvi_trend_decade: float,
+                spi3_recent_max: float | None, water_pct: float | None, ndvi_trend_decade: float,
                 vci_latest: float | None) -> dict:
     """Transparent 0-100 heuristic indices. Higher = more risk."""
     s = 0.0 if spi3_latest is None else spi3_latest
     ds = 2 if dry_spells is None else dry_spells
     drought = clamp(45 - 18 * s - 0.4 * season_anom_pct + 5 * (ds - 2), 2, 98)
-    flood = clamp(20 + 0.45 * max(0.0, wettest_anom_pct) + 0.5 * max(0.0, (water_pct or 100) - 100), 2, 98)
+    wet = 0.0 if spi3_recent_max is None else max(0.0, spi3_recent_max)
+    flood = clamp(15 + 18 * wet + 0.6 * max(0.0, (water_pct or 100) - 100), 2, 98)
     degradation = clamp(45 - ndvi_trend_decade * 600, 2, 98)
     v = 50 if vci_latest is None else vci_latest
     production = clamp(0.5 * drought + 0.2 * flood + 0.3 * (100 - v), 2, 98)
     composite = 0.35 * drought + 0.2 * flood + 0.2 * degradation + 0.25 * production
     return {k: round(val) for k, val in
             dict(drought=drought, flood=flood, degradation=degradation, production=production, composite=composite).items()}
+
+
+def season_status(anom_pct: float, vci_latest: float | None, spi3_latest: float | None, extra_dry_spells: float) -> str:
+    """Favourable / Watch / Stressed from rainfall, recent drought and vegetation condition."""
+    v = 50 if vci_latest is None else vci_latest
+    s = 0.0 if spi3_latest is None else spi3_latest
+    score = 0.4 * anom_pct + 0.5 * (v - 50) + 12 * min(0.0, s) - 3 * max(0.0, extra_dry_spells)
+    return "Favourable" if score >= -8 else "Watch" if score >= -20 else "Stressed"

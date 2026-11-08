@@ -10,13 +10,15 @@ FARMS_GEOJSON = DATA_DIR / "farms.geojson"
 
 # Climate normal period (WMO standard) and other baselines
 NORMAL_START, NORMAL_END = 1991, 2020
+SEASON_BASE = (1998, 2020)     # daily-rainfall baseline (CHIRPS v3 SAT starts in 1998)
 NDVI_BASE_START = 2001          # MODIS Terra full years start in 2001
 TEMP_TREND_START = 1996
 WATER_BASE_YEARS = (2017, 2021)  # Sentinel-1 years used as the water baseline
 
 # Earth Engine dataset IDs
 DS = {
-    "chirps": "UCSB-CHC/CHIRPS/V3/DAILY_RNL",          # band: precipitation (mm/day), ~5.5 km
+    "chirps": "UCSB-CHC/CHIRPS/V3/DAILY_RNL",          # monthly totals 1981-, ~5.5 km (ERA5-disaggregated)
+    "chirps_daily": "UCSB-CHC/CHIRPS/V3/DAILY_SAT",    # daily timing 1998-, IMERG-disaggregated (realistic wet days)
     "era5_monthly": "ECMWF/ERA5_LAND/MONTHLY_AGGR",     # band: temperature_2m (K), ~11 km
     "modis_ndvi": "MODIS/061/MOD13Q1",                  # band: NDVI (x0.0001), 250 m, 16-day
     "modis_et": "MODIS/061/MOD16A2",                    # band: PET (x0.1 kg/m2 per 8 days), 500 m
@@ -46,16 +48,17 @@ REGIONS = {
     "western-north": {"capital": "Sefwi Wiawso", "zone": "Moist evergreen forest", "regime": "bi", "forest": True},
 }
 
-# Crop requirements: annual rainfall range (mm), mean temperature range (deg C),
-# minimum growing-season length (days). Simplified from FAO ECOCROP ranges.
+# Crop requirements: rainfall range (mm) per growing season for annual crops and per
+# year for perennials, mean temperature range (deg C), minimum rainy-season length
+# (days). Simplified from FAO ECOCROP optimal ranges.
 CROPS = [
-    {"key": "maize",   "name": "Maize",          "rain": (800, 1200),  "temp": (21, 28.5), "los": 100, "annual": True},
-    {"key": "sorghum", "name": "Sorghum",        "rain": (500, 950),   "temp": (25, 33),   "los": 90,  "annual": True},
-    {"key": "millet",  "name": "Pearl millet",   "rain": (400, 850),   "temp": (26, 34),   "los": 75,  "annual": True},
-    {"key": "rice",    "name": "Rice (lowland)", "rain": (1000, 1600), "temp": (24, 32),   "los": 110, "annual": True},
-    {"key": "soy",     "name": "Soybean",        "rain": (700, 1100),  "temp": (24, 30),   "los": 100, "annual": True},
-    {"key": "gnut",    "name": "Groundnut",      "rain": (550, 1000),  "temp": (25, 32),   "los": 90,  "annual": True},
+    {"key": "maize",   "name": "Maize",          "rain": (600, 1200),  "temp": (21, 28.5), "los": 100, "annual": True, "max_annual": 1900},
+    {"key": "sorghum", "name": "Sorghum",        "rain": (500, 1000),  "temp": (25, 33),   "los": 90,  "annual": True, "max_annual": 1300},
+    {"key": "millet",  "name": "Pearl millet",   "rain": (400, 900),   "temp": (26, 34),   "los": 75,  "annual": True, "max_annual": 1100},
+    {"key": "rice",    "name": "Rice (lowland)", "rain": (900, 1600) , "temp": (24, 32),   "los": 110, "annual": True},
+    {"key": "soy",     "name": "Soybean",        "rain": (600, 1100),  "temp": (24, 30),   "los": 100, "annual": True, "max_annual": 1700},
+    {"key": "gnut",    "name": "Groundnut",      "rain": (500, 1000),  "temp": (25, 32),   "los": 90,  "annual": True, "max_annual": 1500},
     {"key": "yam",     "name": "Yam",            "rain": (1000, 1500), "temp": (25, 30),   "los": 180, "annual": False},
-    {"key": "cassava", "name": "Cassava",        "rain": (1000, 1800), "temp": (24, 30),   "los": 240, "annual": False},
-    {"key": "cocoa",   "name": "Cocoa",          "rain": (1400, 2000), "temp": (22, 28),   "los": 300, "annual": False, "forest": True},
+    {"key": "cassava", "name": "Cassava",        "rain": (1000, 1800), "temp": (24, 30),   "los": 180, "annual": False},
+    {"key": "cocoa",   "name": "Cocoa",          "rain": (1400, 2000), "temp": (22, 28),   "los": 210, "annual": False, "forest": True},
 ]

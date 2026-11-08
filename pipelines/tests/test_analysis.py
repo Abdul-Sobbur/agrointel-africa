@@ -80,16 +80,33 @@ def test_vci_bounds():
 
 
 def test_crop_suitability_north_favours_cereals():
-    north = {c["key"]: c["score"] for c in A.crop_suitability(950, 28.8, 130, False)}
-    assert north["sorghum"] > north["cocoa"]
-    south = {c["key"]: c["score"] for c in A.crop_suitability(1600, 26.2, 260, True)}
-    assert south["cocoa"] > north["cocoa"]
+    north = {c["key"]: c["score"] for c in A.crop_suitability(1000, 28.8, 150, False, 850)}
+    assert north["sorghum"] > north["cocoa"] and north["maize"] >= 60
+    south = {c["key"]: c["score"] for c in A.crop_suitability(1470, 26.2, 254, True, 760)}
+    assert south["cocoa"] >= 80 and south["maize"] >= 80
+
+
+def test_season_rain_regimes():
+    north = [3, 10, 31, 73, 123, 137, 160, 209, 211, 90, 14, 4]
+    assert A.season_rain(north, "uni") == sum(north[4:10])
+    south = [20, 50, 120, 150, 180, 220, 110, 70, 150, 160, 70, 25]
+    assert A.season_rain(south, "bi") == sum(south[2:7])
+
+
+def test_flood_rises_with_wet_spell_and_water():
+    base = dict(spi3_latest=0, season_anom_pct=0, dry_spells=2, ndvi_trend_decade=0, vci_latest=50)
+    assert A.risk_scores(spi3_recent_max=2.0, water_pct=130, **base)["flood"] > A.risk_scores(spi3_recent_max=0.2, water_pct=100, **base)["flood"]
+
+
+def test_season_status_flags_drought():
+    assert A.season_status(15, 40, -2.0, 0) != "Favourable"
+    assert A.season_status(5, 60, 0.3, 0) == "Favourable"
 
 
 def test_risk_scores_rise_with_drought():
-    calm = A.risk_scores(spi3_latest=0.5, season_anom_pct=5, dry_spells=1, wettest_anom_pct=10,
+    calm = A.risk_scores(spi3_latest=0.5, season_anom_pct=5, dry_spells=1, spi3_recent_max=0.3,
                          water_pct=100, ndvi_trend_decade=0.01, vci_latest=60)
-    dry = A.risk_scores(spi3_latest=-2, season_anom_pct=-30, dry_spells=4, wettest_anom_pct=0,
+    dry = A.risk_scores(spi3_latest=-2, season_anom_pct=-30, dry_spells=4, spi3_recent_max=-1.5,
                         water_pct=70, ndvi_trend_decade=-0.02, vci_latest=20)
     assert dry["drought"] > calm["drought"] and dry["composite"] > calm["composite"]
     assert all(2 <= v <= 98 for v in dry.values())

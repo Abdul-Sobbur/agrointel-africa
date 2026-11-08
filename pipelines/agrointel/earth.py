@@ -12,6 +12,9 @@ import ee
 
 from .config import DS, NORMAL_START, NORMAL_END, WATER_BASE_YEARS
 
+import logging
+
+log = logging.getLogger("agrointel")
 GHANA_BOX = [-3.35, 4.65, 1.25, 11.2]
 
 
@@ -73,7 +76,7 @@ def chirps_monthly_year(fc, year: int, last_month: int = 12) -> dict[str, dict]:
 def chirps_daily_year(fc, year: int, until: dt.date | None = None) -> tuple[list[dt.date], dict[str, list[float]]]:
     """Daily regional-mean rainfall for one year (up to `until`)."""
     end = (until + dt.timedelta(days=1)).isoformat() if until else f"{year + 1}-01-01"
-    col = ee.ImageCollection(DS["chirps"]).select("precipitation").filterDate(f"{year}-01-01", end)
+    col = ee.ImageCollection(DS["chirps_daily"]).select("precipitation").filterDate(f"{year}-01-01", end)
     times = col.aggregate_array("system:time_start").getInfo()
     dates = [dt.datetime.fromtimestamp(t / 1000, dt.timezone.utc).date() for t in times]
     if not dates:
@@ -110,12 +113,21 @@ def _pet_month(col, m: int, year: int | None = None) -> ee.Image:
 def pet_monthly(fc, year: int | None) -> dict[str, dict]:
     """Monthly potential evapotranspiration (mm). year=None gives the 2001-2020 mean."""
     col = ee.ImageCollection(DS["modis_et"]).select("PET")
-    return _reduce(ee.Image.cat([_pet_month(col, m, year) for m in range(1, 13)]), fc, scale=1000)
+    return _reduce(ee.Image.cat([_pet_month(col, m, year) for m in range(1, 13)]), fc,
+                   scale=1000 if year else 2500, tile_scale=16)
 
 
 # ---------------------------------------------------------------- vegetation (MODIS NDVI)
+def _ndvi_col() -> ee.ImageCollection:
+    """MOD13Q1 NDVI with cloudy, snowy and unreliable pixels removed (SummaryQA 0 good, 1 marginal)."""
+    def qa(i):
+        return ee.Image(i.select("NDVI").updateMask(i.select("SummaryQA").lte(1))
+                        .copyProperties(i, ["system:time_start"]))
+    return ee.ImageCollection(DS["modis_ndvi"]).map(qa)
+
+
 def ndvi_monthly_year(fc, year: int) -> dict[str, dict]:
-    col = ee.ImageCollection(DS["modis_ndvi"]).select("NDVI")
+    col = _ndvi_col()
     bands = []
     for m in range(1, 13):
         s = ee.Date.fromYMD(year, m, 1)
@@ -124,7 +136,7 @@ def ndvi_monthly_year(fc, year: int) -> dict[str, dict]:
 
 
 def ndvi_latest() -> tuple[ee.Image, dt.date]:
-    col = ee.ImageCollection(DS["modis_ndvi"]).select("NDVI").sort("system:time_start", False)
+    col = _ndvi_col().sort("system:time_start", False)
     img = ee.Image(col.first())
     when = dt.datetime.fromtimestamp(img.get("system:time_start").getInfo() / 1000, dt.timezone.utc).date()
     return img.multiply(0.0001).rename("NDVI"), when
@@ -132,7 +144,7 @@ def ndvi_latest() -> tuple[ee.Image, dt.date]:
 
 def ndvi_anomaly(img: ee.Image, when: dt.date) -> ee.Image:
     doy = when.timetuple().tm_yday
-    base = (ee.ImageCollection(DS["modis_ndvi"]).select("NDVI")
+    base = (_ndvi_col()
             .filterDate("2001-01-01", f"{NORMAL_END + 1}-01-01")
             .filter(ee.Filter.dayOfYear(max(1, doy - 8), min(366, doy + 8)))
             .mean().multiply(0.0001))
@@ -194,13 +206,22 @@ def region_maps(geojson: dict, out_dir: Path, water_year: int, water_mon: int) -
         "water": water.selfMask().visualize(palette=["1f6fb5"]),
     }
     out: dict = {"ndvi_date": when.isoformat(), "water_month": f"{water_year}-{water_mon:02d}", "regions": {}}
+    errors = 0
     for f in geojson["features"]:
         key = f["properties"]["key"]
         geom = ee.Geometry(f["geometry"])
         entry = {}
         for layer, im in vis.items():
-            entry["bounds"] = thumbnail(im, geom, out_dir / f"{key}_{layer}.png")
-        out["regions"][key] = entry
+            try:
+                entry["bounds"] = thumbnail(im, geom, out_dir / f"{key}_{layer}.png")
+                entry[layer] = True
+            except Exception as e:  # keep going: one failed image should not lose the rest
+                errors += 1
+                log.warning("map %s %s failed: %s", key, layer, e)
+        if entry:
+            out["regions"][key] = entry
+    if not out["regions"]:
+        raise RuntimeError(f"all {errors} map images failed")
     return out
 
 

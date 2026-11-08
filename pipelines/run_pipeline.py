@@ -26,7 +26,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from agrointel import analysis as A  # noqa: E402
 from agrointel import earth as E  # noqa: E402
 from agrointel.config import (CACHE_DIR, FARMS_GEOJSON, NDVI_BASE_START, NORMAL_END, NORMAL_START,  # noqa: E402
-                              REGIONS, REGIONS_GEOJSON, TEMP_TREND_START, WEB_DATA)
+                              REGIONS, REGIONS_GEOJSON, SEASON_BASE, TEMP_TREND_START, WEB_DATA)
 
 log = logging.getLogger("agrointel")
 
@@ -97,8 +97,8 @@ def as_tuple_series(d: dict) -> dict[tuple[int, int], float]:
 
 
 def update_season_history(fc, keys, rebuild):
-    cache = {} if rebuild else load("season_history.json")
-    for y in range(NORMAL_START, NORMAL_END + 1):
+    cache = {} if rebuild else load("season_history_sat.json")
+    for y in range(SEASON_BASE[0], SEASON_BASE[1] + 1):
         if all(str(y) in cache.get(k, {}) for k in keys):
             continue
         dates, daily = soft(f"season history {y}", E.chirps_daily_year, fc, y, default=([], {}))
@@ -109,7 +109,7 @@ def update_season_history(fc, keys, rebuild):
             ind = A.season_indicators(dates, daily[k], REGIONS[k]["regime"])
             ind["total"] = round(sum(daily[k]), 1)
             cache.setdefault(k, {})[str(y)] = ind
-        save("season_history.json", cache)
+        save("season_history_sat.json", cache)
     return cache
 
 
@@ -142,7 +142,9 @@ def main() -> None:
     log.info("daily rainfall %s: %d days", year, len(dates))
 
     # Vegetation history
-    ndvi = update_monthly(fc, keys, "ndvi_monthly.json", E.ndvi_monthly_year, NDVI_BASE_START, dt.date.today().year, 12, args.rebuild)
+    t0 = dt.date.today()
+    ny_, nm_ = (t0.year, t0.month - 1) if t0.month > 1 else (t0.year - 1, 12)  # only complete months
+    ndvi = update_monthly(fc, keys, "ndvi_monthly_qa.json", E.ndvi_monthly_year, NDVI_BASE_START, ny_, nm_, args.rebuild)
 
     # Temperature, evapotranspiration, water
     log.info("temperature")
@@ -233,13 +235,12 @@ def main() -> None:
 
         # suitability and risk
         tnorm = trow.get("normal") or (sum(v for v in tvals if v) / max(1, len([v for v in tvals if v])))
-        suit = A.crop_suitability(sum(normal), tnorm, los_n, meta["forest"])
-        wettest = max([a for a, n in zip(month_anom, normal) if a is not None and n >= 40] or [0])
+        suit = A.crop_suitability(sum(normal), tnorm, los_n, meta["forest"], A.season_rain(normal, meta["regime"]))
+        recent = [v for v in spi_year[max(0, last_month - 3):last_month] if v is not None]
         risk = A.risk_scores(spi3_latest=spi_latest, season_anom_pct=anom, dry_spells=cur["dry_spells"],
-                             wettest_anom_pct=wettest, water_pct=wpct,
+                             spi3_recent_max=max(recent) if recent else None, water_pct=wpct,
                              ndvi_trend_decade=(nslope * 10 if not math.isnan(nslope) else 0.0), vci_latest=vci)
-        score = anom + ((vci or 50) - 50) * 0.6 - 3 * max(0, (cur["dry_spells"] or 0) - (ds_n or 0))
-        status = "Favourable" if score >= -8 else "Watch" if score >= -20 else "Stressed"
+        status = A.season_status(anom, vci, spi_latest, (cur["dry_spells"] or 0) - (ds_n or 0))
 
         region = {
             "key": k, "name": names[k], **meta, "year": year, "updated": today.isoformat(),
