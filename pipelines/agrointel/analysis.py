@@ -11,6 +11,7 @@ from scipy import stats
 from .config import NORMAL_START, NORMAL_END, CROPS
 
 DRY_DAY_MM = 1.0
+NDVI_NOISE = 0.04   # combined MODIS composite noise (residual cloud, view angle), NDVI units
 
 
 def clamp(v: float, lo: float, hi: float) -> float:
@@ -166,14 +167,23 @@ def linear_trend(xs: list[float], ys: list[float]) -> tuple[float, float]:
 
 
 def vci(monthly_ndvi: dict[tuple[int, int], float], year: int, month: int) -> float | None:
-    """Vegetation Condition Index (Kogan 1995) from a regional monthly NDVI series."""
+    """Vegetation condition, 0-100, from a regional monthly NDVI series.
+
+    A standardised form of Kogan's (1995) VCI: the month's departure from the
+    same calendar month in all other years, in standard deviations, mapped
+    through the normal CDF. 50 = typical, 84 = one SD greener, 16 = one SD
+    browner. This avoids min/max bounds, which are unstable in evergreen
+    forest where NDVI barely varies. The spread has a floor of NDVI_NOISE so
+    departures smaller than the sensor's noise cannot read as extremes.
+    """
     if (year, month) not in monthly_ndvi:
         return None
-    hist = [v for (y, m), v in monthly_ndvi.items() if m == month and not math.isnan(v)]
-    lo, hi = min(hist), max(hist)
-    if hi - lo < 1e-6:
+    x = monthly_ndvi[(year, month)]
+    hist = np.array([v for (y, m), v in monthly_ndvi.items() if m == month and y != year and not math.isnan(v)])
+    if len(hist) < 5 or hist.std() < 1e-6:
         return 50.0
-    return round(100 * (monthly_ndvi[(year, month)] - lo) / (hi - lo), 1)
+    z = (x - hist.mean()) / max(hist.std(ddof=1), NDVI_NOISE)
+    return round(float(100 * stats.norm.cdf(z)), 1)
 
 
 # ---------------------------------------------------------------- suitability

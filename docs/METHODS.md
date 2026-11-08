@@ -20,7 +20,7 @@
 * **Rainfall anomaly:** observed January-to-latest-month total against the normal for the same months.
 * **SPI-3:** three-month totals; for each calendar month a gamma distribution is fitted to 1991–2020 non-zero totals, combined with the probability of zero rain, and mapped to a standard normal (McKee et al., 1993). Months whose normal three-month total is under 30 mm are left blank.
 * **Onset:** first 3-day spell with ≥ 20 mm (≥ 2 wet days) after 1 April in the north or 1 March in the south, with no 7-day dry spell in the next 30 days. **Cessation:** first wet day after 1 September (north) or 15 October (south) followed by < 10 mm in 20 days. Dry day: < 1 mm.
-* **VCI:** (NDVI − min) / (max − min) × 100 for the same calendar month over 2001–present, using regional means (Kogan, 1995).
+* **Vegetation condition (VCI):** standardised form of Kogan (1995): the month's regional NDVI departure from the same month in other years (2001–present), divided by the larger of the standard deviation and a 0.04 noise floor, mapped through the normal CDF to 0–100 (50 = typical). Only complete months are used.
 * **Surface water:** median Sentinel-1 VV < −16 dB within the JRC maximum water extent, summed by region.
 * **Crop suitability:** trapezoid scores for rainfall (growing-season rainfall for annual crops, annual rainfall for perennials), mean temperature and rainy-season length against simplified FAO ECOCROP ranges; FAO classes S1 (≥ 80), S2 (≥ 60), S3 (≥ 40), N.
 * **Risk indices (0–100):** transparent heuristics in `pipelines/agrointel/analysis.py::risk_scores`. Composite = 35% drought + 25% production + 20% flood + 20% degradation.

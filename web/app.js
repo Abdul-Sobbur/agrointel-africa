@@ -253,7 +253,7 @@ VIEWS.crop.health = R => { const n = R.ndvi, v = vciClass(n.vci), lm = n.latest_
     <p class="note">MODIS NDVI, 250 m${D.meta.maps ? ', composite of ' + fmtDate(D.meta.maps.ndvi_date) : ''}.</p></div>
     <div class="stack-v">${verdict(chip(v[0], v[1]), `Vegetation is ${v[0].toLowerCase()}`, lm ? `Average greenness in ${esc(R.name)} for ${MONTH[lm - 1]} ${n.year} is ${fx(Math.abs(pct))}% ${pct >= 0 ? 'above' : 'below'} the 2001–2020 average for that month.` : 'No recent vegetation data.')}
     <div class="facts">${fact('NDVI', fx(cur, 2), 'normal ' + fx(nor, 2))}${fact('Condition (VCI)', fx(n.vci), '0 worst, 100 best')}</div>
-    <p class="note">NDVI measures how green and leafy the land is. The Vegetation Condition Index places this month between the worst (0) and best (100) of the same month since 2001.</p></div></div>`); };
+    <p class="note">NDVI measures how green and leafy the land is. The condition score compares this month with the same month in every year since 2001: 50 is typical, above 50 greener than usual, below 50 browner.</p></div></div>`); };
 AFTER.crop.health = () => regionMap('m1', 'ndvi');
 
 VIEWS.crop.growth = R => { const n = R.ndvi, main = R.suitability.find(c => ['maize', 'sorghum', 'millet', 'rice', 'soy', 'gnut'].includes(c.key));
@@ -451,7 +451,7 @@ function methodsView() {
       <li><strong>Normals</strong> use 1991–2020 (WMO standard) for rainfall totals and temperature, 1998–2020 for daily season indicators, and 2001–2020 for vegetation.</li>
       <li><strong>SPI-3</strong> fits a gamma distribution, with a probability of zero rain, to three-month totals for each calendar month (McKee et al., 1993).</li>
       <li><strong>Onset</strong> is the first 3-day spell with at least 20 mm after 1 April (north) or 1 March (south), not followed by 7 dry days within 30 days. <strong>Cessation</strong> is the first wet day after 1 September (north) or 15 October (south) followed by less than 10 mm in 20 days.</li>
-      <li><strong>VCI</strong> places each month's regional NDVI between the minimum and maximum for that month since 2001 (Kogan, 1995).</li>
+      <li><strong>Vegetation condition (VCI)</strong> is a standardised form of Kogan's (1995) index: how far this month's regional NDVI is from the same month in other years since 2001, scaled to 0–100 where 50 is typical. Changes smaller than the satellite's noise (0.04 NDVI) cannot reach the extremes. Only complete months are used.</li>
       <li><strong>Crop suitability</strong> scores growing-season rainfall (annual crops) or annual rainfall (perennials), mean temperature and rainy-season length against simplified FAO ECOCROP ranges. Soil is not yet included.</li>
       <li><strong>Risk indices</strong> are transparent heuristics (0–100) combining SPI, rainfall anomaly, dry spells, surface water, NDVI trend and VCI. They are indicators for discussion, not validated predictions.</li>
     </ul>

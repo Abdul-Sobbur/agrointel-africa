@@ -142,8 +142,13 @@ def main() -> None:
     log.info("daily rainfall %s: %d days", year, len(dates))
 
     # Vegetation history
+    # Only complete months: a month's last MODIS 16-day composite ends mid-way through the next
+    # month, so month m counts once we are past the 16th of month m+1.
     t0 = dt.date.today()
-    ny_, nm_ = (t0.year, t0.month - 1) if t0.month > 1 else (t0.year - 1, 12)  # only complete months
+    back = 1 if t0.day >= 16 else 2
+    ny_, nm_ = t0.year, t0.month - back
+    if nm_ < 1:
+        ny_, nm_ = ny_ - 1, nm_ + 12
     ndvi = update_monthly(fc, keys, "ndvi_monthly_qa.json", E.ndvi_monthly_year, NDVI_BASE_START, ny_, nm_, args.rebuild)
 
     # Temperature, evapotranspiration, water

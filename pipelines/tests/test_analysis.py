@@ -73,10 +73,14 @@ def test_linear_trend():
     assert math.isclose(slope, 2) and math.isclose(icpt, 1)
 
 
-def test_vci_bounds():
-    s = {(y, 7): 0.3 + 0.01 * (y - 2001) for y in range(2001, 2027)}
-    assert A.vci(s, 2026, 7) == 100.0
-    assert A.vci(s, 2001, 7) == 0.0
+def test_vci_standardised():
+    s = {(y, 7): 0.30 + (0.01 if y % 2 else -0.01) for y in range(2001, 2026)}
+    s[(2026, 7)] = 0.30
+    assert 40 < A.vci(s, 2026, 7) < 60
+    s[(2026, 7)] = 0.27   # 0.03 below normal: within sensor noise, so not extreme
+    assert 15 < A.vci(s, 2026, 7) < 40
+    s[(2026, 7)] = 0.18
+    assert A.vci(s, 2026, 7) < 2
 
 
 def test_crop_suitability_north_favours_cereals():
