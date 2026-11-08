@@ -258,7 +258,7 @@ function buildLanding() {
       <div class="years" aria-hidden="true"><span>2011</span><span>2013</span><span class="sel">2015</span><span>2019</span><span>2024</span><span>${D.meta.year}</span></div>
       <p>Tamale, 2015: the rains came about six weeks late and the season ended 22% drier than normal.</p></a>
     <a class="card" href="#farms"><span class="tag">FARM TRACER</span><h3>Map a field in a minute</h3><div class="field" aria-hidden="true"></div><p>Draw a boundary on satellite imagery to get its area, greenness through the year, and a tree-loss check since 2021.</p></a>
-    <a class="card" href="${REPO}" target="_blank" rel="noopener"><span class="tag">OPEN SOURCE</span><h3>Runs in the open, every week</h3><div class="gh" aria-hidden="true"><b>✓</b> rainfall to ${esc(fmtDay(D.meta.rain_latest))}<br><b>✓</b> vegetation, water, risk<br><b>✓</b> ${D.meta.regions.length} regions${nd ? ` · ${nd} districts` : ''}<br><b>✓</b> published ${esc((D.meta.generated || '').slice(0, 10))}</div><p>The Earth Engine pipeline and this site are on GitHub under the MIT licence.</p></a>`;
+    <a class="card" href="#workspace"><span class="tag">MY WORKSPACE</span><h3>Your areas, your alerts</h3><div class="gh" aria-hidden="true"><b>●</b> Choose your role and districts<br><b>●</b> Set your own alert levels<br><b>●</b> Reservoirs to watch<br><b>●</b> Reports with your details</div><p>Insurers, extension officers, water managers, NGOs and researchers each get the view they need. Saved privately in your browser.</p></a>`;
   $('#replay').onclick = () => { state.region = 'northern'; state.district = hasTamale ? 'd-tamale-metropolitan' : null; state.year = 2015; state.sub.climate = 'ind'; save(); syncPickers(); };
 }
 
@@ -664,7 +664,7 @@ function farmReport(x) {
   } else {
     body = `${chip('Not monitored yet', 'neu')}
       <div class="facts">${fact('Area', fx(ha, 2) + ' ha', fx(ha * 2.471, 2) + ' acres')}${fact('Perimeter', fx(perimeter(latlngs, true)) + ' m', '')}${fact('Region risk', fx((s.risk || {}).composite), level((s.risk || {}).composite)[0])}</div>
-      <p class="note">To monitor this farm with Sentinel-2, download its GeoJSON and add the feature to <a href="${REPO}/blob/main/data/farms.geojson" target="_blank" rel="noopener">data/farms.geojson</a>. The next weekly run analyses it.</p>
+      <p class="note">The area and outline are saved in this browser. Weekly Sentinel-2 monitoring runs for farms registered with the project, with the farmer's permission; download the GeoJSON to share it.</p>
       <div class="toolbar"><button class="btn sm primary" id="dl" type="button">Download GeoJSON</button><button class="btn sm danger" id="del" type="button">${armed === x.id ? 'Confirm remove' : 'Remove'}</button></div>`;
   }
   return `<section class="panel">${verdict('', esc(p.name), `${esc(p.farmer || 'Unnamed farmer')} · ${esc(p.community || s.name || '')} · ${esc(p.crop)}`)}<div id="fmap" class="lmap"></div>${body}</section>`;
@@ -712,6 +712,11 @@ function methodsView() {
       <li><strong>Soil ratings</strong> use the iSDAsoil 0–20 cm means, back-transformed per pixel and averaged over land that is not built-up or water. Bands: pH below 4.5 extremely, 4.5–5.5 strongly, 5.5–6.5 moderately acid; organic carbon below 6, 12 and 20 g/kg very low, low, moderate; total nitrogen below 0.5, 1 and 2 g/kg; extractable phosphorus below 10 and 25 ppm; potassium below 60 and 150 ppm; bedrock shallower than 50 and 100 cm.</li>
       <li><strong>Past seasons</strong> (2001 onward) use full-year rainfall, SPI-3 at the end of the main season, and vegetation condition averaged over the growing season. Surface water and map images cover the latest month only.</li>
       <li><strong>Risk indices</strong> are transparent heuristics (0–100) combining SPI, rainfall anomaly, dry spells, surface water, NDVI trend and VCI. They are indicators for discussion, not validated predictions.</li>
+    </ul>
+    <h3>Checks against known seasons</h3>
+    <ul>
+      <li><strong>2015, northern Ghana:</strong> NOAA's Africa Hazards Outlook of 16 July 2015 reported a delayed onset followed by poorly distributed rain across central and northern Ghana, with planting delayed. For Tamale this platform shows the rains established on 9 June against a usual date around 26 April (about six weeks late), a season 22% drier than normal, and a rainy season of 140 days against a usual 182.</li>
+      <li>More checks, against Ghana Meteorological Agency station records and field reports, are planned for version 2. Corrections are welcome.</li>
     </ul>
     <h3>Limitations</h3>
     <ul>

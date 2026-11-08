@@ -490,3 +490,5 @@ form.reg{display:grid;gap:12px;grid-template-columns:repeat(auto-fit,minmax(180p
 .cmpsel{min-width:0;max-width:100%}
 .cmpsel .pick{min-width:0;max-width:100%;flex:1 1 220px}
 .cmp2{display:grid;gap:16px;grid-template-columns:repeat(auto-fit,minmax(min(100%,380px),1fr))}
+.ver{font-size:13px;color:var(--muted)}
+.ver a{color:var(--muted)}

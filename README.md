@@ -7,15 +7,20 @@ Rainfall, drought, crop health, surface water, risk and farm monitoring for Ghan
 
 > A personal, noncommercial portfolio project. Figures are computed automatically and have not been validated in the field.
 
-## What it does
+## What it does (version 1.0, November 2026)
 
-| Module | Answers | Built from |
+| Area | Answers | Built from |
 | --- | --- | --- |
-| A. Crop intelligence | Is vegetation healthy? Which crops fit this climate? Is the season on track? | MODIS NDVI, VCI, FAO-style suitability |
-| B. Climate intelligence | How much rain, compared with normal? Is drought building? When did the rains start? | CHIRPS v3, SPI-3, ERA5-Land |
-| C. Water intelligence | How much surface water is there now? Where do crops run short of water? | Sentinel-1 radar, JRC Surface Water, MODIS PET |
-| D. Agricultural risk | Where are drought, flood, degradation and production risk highest? | Combined indicators, NDVI anomaly maps |
-| E. Farm management | How big is this field, how green is it, and has forest been cleared on it? | Leaflet tracing, Sentinel-2, Hansen GFC |
+| Crop | Is vegetation healthy on farmland? Which crops fit the climate and soil? Is the season on track? | MODIS NDVI and VCI with an ESA WorldCover cropland mask, FAO-style suitability, iSDAsoil |
+| Climate | How much rain against normal? Is drought building? When did the rains start and stop? | CHIRPS v3, SPI-3, ERA5-Land |
+| Water | How much surface water is there? How full are Tono, Vea, Bontanga, Weija, Bui, Lake Volta and others? Where do crops run short of water? | Sentinel-1 radar, JRC Surface Water, MODIS PET |
+| Risk | Where are drought, flood, degradation and production risk highest? How much forest is lost and land burned each year? | Combined indicators, Hansen GFC, MODIS burned area and land cover |
+| Farms | How big is this field, how green is it, and has forest been cleared on it? | Leaflet tracing, Sentinel-2, Hansen GFC |
+| Compare | How do two districts, or two seasons, differ? | All of the above |
+| Reports | A printable national, regional or district report with the user's name, organisation, logo and notes | All of the above |
+| My workspace | Role-based view (extension, insurance, water, NGO, research, farming) with watched areas, own alert levels and CSV download | All of the above, stored in the browser |
+
+Coverage: 16 regions and 260 districts, every season since 2001 (rainfall since 1981), updated every Monday.
 
 ## How it works
 
@@ -38,7 +43,7 @@ web/ — static site: index.html, app.js, styles.css (Leaflet maps)
 ```
 data/regions.geojson        Ghana's 16 regions (geoBoundaries ADM1)
 data/districts.geojson      260 districts (geoBoundaries ADM2, 2019), each tagged with its region
-data/farms.geojson          farms monitored with Sentinel-2 (add yours here)
+data/farms.geojson          farms monitored with Sentinel-2 (empty in v1; add farms with permission)
 data/cache/                 cached historical series (written by the pipeline)
 pipelines/agrointel/        config, Earth Engine access, analysis
 pipelines/run_pipeline.py   the weekly job
@@ -76,7 +81,10 @@ Only map farms with the farmer's permission.
 
 ## Data and credits
 
-CHIRPS v3 (UCSB Climate Hazards Center) · ERA5-Land (ECMWF / Copernicus Climate Change Service) · MODIS MOD13Q1 and MOD16A2 (NASA LP DAAC) · Sentinel-1 and Sentinel-2 (ESA Copernicus) · JRC Global Surface Water (EC JRC / Google) · Hansen Global Forest Change v1.13 (University of Maryland) · geoBoundaries (CC BY 4.0) · Base maps and imagery © Esri and contributors.
+CHIRPS v3 (UCSB Climate Hazards Center) · ERA5-Land (ECMWF / Copernicus Climate Change Service) · MODIS MOD13Q1 and MOD16A2 (NASA LP DAAC) · Sentinel-1 and Sentinel-2 (ESA Copernicus) · JRC Global Surface Water (EC JRC / Google) · Hansen Global Forest Change v1.13 (University of Maryland) · MODIS MCD64A1 and MCD12Q1 (NASA) · ESA WorldCover 2021 · iSDAsoil (iSDA, CC BY 4.0) · geoBoundaries (CC BY 4.0) · Base maps and imagery © Esri and contributors.
+Hero photos via Unsplash (Oswald Elsaboath, Tomiwa Ogunmodede).
 Processing with [Google Earth Engine](https://earthengine.google.com/) under its noncommercial terms.
 
 Code: MIT licence. Data remain under their providers' licences.
+
+See [CHANGELOG.md](CHANGELOG.md) for what is in each version.
