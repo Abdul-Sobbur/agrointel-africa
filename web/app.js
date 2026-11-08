@@ -36,7 +36,7 @@ function asView(U, y) {
     rain: { ...b.rain, normal: U.rain_normal, annual_normal: U.annual_normal, spi3_latest: b.rain.spi3_ref, latest_date: cur ? U.latest_date : `${y}-12-31` },
     season: { ...b.season, onset_normal_doy: sn.onset_doy, cessation_normal_doy: sn.cessation_doy, los_normal: sn.los, rainy_days_normal: sn.rainy_days, dry_spells_normal: sn.dry_spells },
     temp: U.temp, ndvi: { year: Number(y), ...b.ndvi, normal: U.ndvi_normal, trend_decade: U.ndvi_trend_decade },
-    water: U.water, balance: b.balance, suitability: U.suitability, risk: b.risk, status: b.status };
+    water: U.water, balance: b.balance, suitability: U.suitability, soil: U.soil, land: U.land, ndviBasis: U.ndvi_basis, risk: b.risk, status: b.status };
 }
 
 /* ---------------- state ---------------- */
@@ -147,8 +147,8 @@ const ICON = {
 };
 const MODS = {
   overview: { n: 'Overview' },
-  crop: { n: 'Crop', full: 'Crop intelligence', col: 'green', ltr: 'A', subs: [['health', 'Vegetation health'], ['growth', 'Crop growth'], ['suit', 'Crop suitability'], ['season', 'Season assessment']],
-    items: ['Vegetation health (NDVI, VCI)', 'Crop growth through the season', 'Crop suitability (FAO classes)', 'Seasonal assessment'] },
+  crop: { n: 'Crop', full: 'Crop intelligence', col: 'green', ltr: 'A', subs: [['health', 'Vegetation health'], ['growth', 'Crop growth'], ['suit', 'Crop suitability'], ['soil', 'Soil and land'], ['season', 'Season assessment']],
+    items: ['Vegetation health on farmland', 'Crop growth through the season', 'Crop suitability: climate and soil', 'Soil profile (iSDAsoil)', 'Seasonal assessment'] },
   climate: { n: 'Climate', full: 'Climate intelligence', col: 'gold', ltr: 'B', subs: [['rain', 'Rainfall'], ['anom', 'Anomalies'], ['temp', 'Temperature'], ['drought', 'Drought'], ['ind', 'Season indicators']],
     items: ['Rainfall vs 1991–2020 normal', 'Monthly anomalies', 'Temperature trend since 1996', 'Drought (SPI-3)', 'Onset, cessation, dry spells'] },
   water: { n: 'Water', full: 'Water intelligence', col: 'water', ltr: 'C', subs: [['surface', 'Surface water'], ['stress', 'Water stress']],
@@ -210,7 +210,7 @@ function buildSlides() {
   fig.addEventListener('mouseenter', () => paused = true); fig.addEventListener('mouseleave', () => paused = false);
   fig.addEventListener('focusin', () => paused = true); fig.addEventListener('focusout', () => paused = false);
   show(0); start();
-  $('#credits').innerHTML = `Photos via Unsplash: ${Object.values(PHOTOS).map(p => `<a href="${p.page}${UTM}" target="_blank" rel="noopener">${esc(p.by)}</a>`).join(' and ')}. Data: CHIRPS, ECMWF ERA5-Land, NASA MODIS, ESA Copernicus Sentinel-1 and -2, EC JRC, Hansen/UMD/Google/USGS/NASA, geoBoundaries.`;
+  $('#credits').innerHTML = `Photos via Unsplash: ${Object.values(PHOTOS).map(p => `<a href="${p.page}${UTM}" target="_blank" rel="noopener">${esc(p.by)}</a>`).join(' and ')}. Data: CHIRPS, ECMWF ERA5-Land, NASA MODIS, ESA Copernicus Sentinel-1 and -2, ESA WorldCover, iSDAsoil, EC JRC, Hansen/UMD/Google/USGS/NASA, geoBoundaries.`;
 }
 
 async function buildDemo(key) {
@@ -248,7 +248,7 @@ function buildLanding() {
   $('#demoChips').innerHTML = picks.map(k => `<button type="button" class="chip-b" data-k="${k}" aria-pressed="false">${esc(summary(k).name)}</button>`).join('');
   $$('#demoChips .chip-b').forEach(b => b.onclick = () => buildDemo(b.dataset.k));
   buildDemo(picks[0] || D.meta.regions[0].key);
-  $('#modTiles').innerHTML = Object.entries(MODS).filter(([k]) => k !== 'overview').map(([k, m]) => `<a class="mod" href="#${k}"><span class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${ICON[k]}</svg></span><h3>${m.full}</h3><ul>${m.items.map(i => `<li>${i}</li>`).join('')}</ul><span class="go">Open ${m.n.toLowerCase()} →</span></a>`).join('');
+  $('#modTiles').innerHTML = Object.entries(MODS).filter(([k]) => k !== 'overview').map(([k, m]) => `<a class="modc" href="#${k}"><span class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${ICON[k]}</svg></span><h3>${m.full}</h3><ul>${m.items.map(i => `<li>${i}</li>`).join('')}</ul><span class="go">Open ${m.n.toLowerCase()} →</span></a>`).join('');
   const hasTamale = D.sum.district && sumUnit('district', 'd-tamale-metropolitan');
   $('#trio').innerHTML = `<a class="card dark" href="#climate" id="replay"><span class="tag">SEASON REPLAY</span><h3>Go back to any season since ${D.meta.first_year || 2001}</h3>
       <div class="years" aria-hidden="true"><span>2011</span><span>2013</span><span class="sel">2015</span><span>2019</span><span>2024</span><span>${D.meta.year}</span></div>
@@ -376,8 +376,16 @@ VIEWS.crop.health = R => { const n = R.ndvi, v = vciClass(n.vci), lm = n.latest_
     <p class="note">MODIS NDVI, 250 m${D.meta.maps ? ', composite of ' + fmtDate(D.meta.maps.ndvi_date) : ''}.</p></div>
     <div class="stack-v">${verdict(chip(v[0], v[1]), `Vegetation is ${v[0].toLowerCase()}`, n.vci_basis === 'season' ? `Average condition across the ${R.year} growing season, compared with the same months in other years.` : lm ? `Average greenness in ${esc(R.name)} for ${MONTH[lm - 1]} ${n.year} is ${fx(Math.abs(pct))}% ${pct >= 0 ? 'above' : 'below'} the 2001–2020 average for that month.` : 'No recent vegetation data.')}
     <div class="facts">${fact('NDVI', fx(cur, 2), 'normal ' + fx(nor, 2))}${fact('Condition (VCI)', fx(n.vci), '0 worst, 100 best')}</div>
+    ${basisNote(R)}
     <p class="note">NDVI measures how green and leafy the land is. The condition score compares this month with the same month in every year since 2001: 50 is typical, above 50 greener than usual, below 50 browner.</p></div></div>`); };
 AFTER.crop.health = () => regionMap('m1', 'ndvi');
+
+function basisNote(R) {
+  const cp = R.land && R.land.cropland_pct;
+  return R.ndviBasis === 'cropland'
+    ? `<p class="basis"><b>Farmland only.</b> These figures use only the satellite pixels that are mostly cropland (${fx(cp, 0)}% of the land here, ESA WorldCover 2021), so forest and bush do not hide what crops are doing.</p>`
+    : `<p class="basis"><b>All vegetation.</b> ${isNum(cp) ? `Cropland covers only ${fx(cp, 1)}% of the land here on the 2021 land-cover map` : 'There is not enough farmland history yet'}, so these figures use all vegetation. In cocoa areas, farms often show up as tree cover.</p>`;
+}
 
 VIEWS.crop.growth = R => { const n = R.ndvi, main = R.suitability.find(c => ['maize', 'sorghum', 'millet', 'rice', 'soy', 'gnut'].includes(c.key));
   const lm = n.latest_month, diff = lm ? (n.monthly[lm - 1] / n.normal[lm - 1] - 1) * 100 : null;
@@ -387,9 +395,40 @@ VIEWS.crop.growth = R => { const n = R.ndvi, main = R.suitability.find(c => ['ma
 
 VIEWS.crop.suit = R => { const s1 = R.suitability.filter(c => c.class === 'S1'), top = R.suitability[0];
   const head = s1.length > 1 ? `${s1.length} crops are highly suitable in ${esc(R.name)}` : s1.length === 1 ? `${esc(s1[0].name)} is the best fit for ${esc(R.name)}` : `No crop is highly suitable; ${esc(top.name.toLowerCase())} fits best`;
-  return P(`${verdict(chip(s1.length ? s1.map(c => c.name).slice(0, 4).join(', ') + (s1.length > 4 ? '…' : '') : suitName(top.class), s1.length ? 'good' : suitCol(top.class)), head, `Scores compare each crop's needs with the 1991–2020 climate here: ${fx(R.rain.annual_normal)} mm of rain a year, ${fx(R.temp.normal, 1)} °C average temperature${isNum(R.season.los_normal) ? ` and a ${R.season.los_normal}-day rainy season` : ''}. Soil is not yet included, so several crops can tie; within a class, crops are ordered by how close the climate sits to their ideal.`)}
-    <div class="rows">${R.suitability.map(c => `<div class="row"><span class="nm">${esc(c.name)}</span><span class="sc">${c.class} · ${c.score}</span>${meter(c.score, suitCol(c.class))}</div>`).join('')}</div>
+  return P(`${verdict(chip(s1.length ? s1.map(c => c.name).slice(0, 4).join(', ') + (s1.length > 4 ? '…' : '') : suitName(top.class), s1.length ? 'good' : suitCol(top.class)), head, `Scores compare each crop's needs with the 1991–2020 climate here: ${fx(R.rain.annual_normal)} mm of rain a year, ${fx(R.temp.normal, 1)} °C average temperature${isNum(R.season.los_normal) ? ` and a ${R.season.los_normal}-day rainy season` : ''}. ${R.soil ? `Topsoil acidity, depth and texture can lower a score by up to 30%; low fertility is shown under Soil and land but not scored, because fertiliser can fix it.` : 'Soil data is not available yet.'} Within a class, crops are ordered by how close conditions sit to their ideal.`)}
+    <div class="rows">${R.suitability.map(c => `<div class="row"><span class="nm">${esc(c.name)}${c.limits && c.limits.length ? `<small class="lim">${esc(c.limits.join(', '))}</small>` : ''}</span><span class="sc">${c.class} · ${c.score}</span>${meter(c.score, suitCol(c.class))}</div>`).join('')}</div>
     <p class="note">Classes follow FAO land evaluation: S1 highly, S2 moderately, S3 marginally suitable, N not suitable.</p>`); };
+
+const SOIL_ROWS = [['ph', 'pH (acidity)', v => fx(v, 1), ''], ['oc', 'Organic carbon', v => fx(v, 1), 'g/kg'], ['n', 'Total nitrogen', v => fx(v, 2), 'g/kg'],
+  ['p', 'Phosphorus (extractable)', v => fx(v, 0), 'ppm'], ['k', 'Potassium (extractable)', v => fx(v, 0), 'ppm'], ['depth', 'Depth to bedrock', v => fx(v, 0), 'cm']];
+const soilCol = (p, rt) => !rt ? 'neu' : p === 'ph' ? ({ 'Extremely acid': 'bad', 'Strongly acid': 'warn', 'Moderately acid': 'good', 'Neutral': 'good', 'Alkaline': 'mod' }[rt])
+  : p === 'depth' ? ({ Shallow: 'warn', 'Moderately deep': 'mod', Deep: 'good' }[rt]) : ({ 'Very low': 'bad', Low: 'warn', Moderate: 'mod', High: 'good' }[rt]);
+const LC_COL = { 'Tree cover': '#1F6B3A', Shrubland: '#9BB45A', Grassland: '#D7D27A', Cropland: '#FAB633', 'Built-up': '#C2302A', 'Bare / sparse': '#BFAE95', Water: '#2C6FB5', Wetland: '#5FA8A0', Mangroves: '#0E5A4A' };
+VIEWS.crop.soil = R => { const s = R.soil, L = R.land || {};
+  const lc = Object.entries(L.pct || {}).filter(([, v]) => v >= 0.1).sort((a, b) => b[1] - a[1]);
+  const landHtml = lc.length ? `<div class="stack-v"><h3 style="font-size:18px">Land cover</h3>
+    <div class="lcbar" role="img" aria-label="Land cover shares">${lc.map(([k, v]) => `<span style="width:${v}%;background:${LC_COL[k] || '#999'}" title="${esc(k)} ${fx(v, 1)}%"></span>`).join('')}</div>
+    <div class="lclist">${lc.map(([k, v]) => `<span><i style="background:${LC_COL[k] || '#999'}"></i>${esc(k)} <b class="mono">${fx(v, v < 1 ? 1 : 0)}%</b></span>`).join('')}</div>
+    <p class="note">ESA WorldCover 2021, 10 m. Cropland: about ${fx(L.cropland_km2)} km². Tree crops such as cocoa are usually mapped as tree cover.</p></div>` : '';
+  if (!s) return P(`${verdict(chip('No data yet', 'neu'), 'Soil data appears after the next pipeline run', 'The pipeline fetches iSDAsoil once and keeps it.')}${landHtml}`);
+  const issues = [];
+  if (['Extremely acid', 'Strongly acid'].includes(s.ph.rating)) issues.push('acidic');
+  if (['Very low', 'Low'].includes(s.oc.rating)) issues.push('low in organic matter');
+  if (['Very low', 'Low'].includes(s.n.rating)) issues.push('low in nitrogen');
+  if (s.p.rating === 'Low') issues.push('low in phosphorus');
+  if (s.depth.rating === 'Shallow') issues.push('shallow');
+  const list = issues.length > 1 ? issues.slice(0, -1).join(', ') + ' and ' + issues.slice(-1) : issues[0];
+  const head = issues.length ? `Topsoils here are typically ${list}` : 'Topsoils here have no major limitations';
+  const advice = [];
+  if (issues.includes('acidic')) advice.push('liming or wood ash');
+  if (issues.includes('low in organic matter') || issues.includes('low in nitrogen')) advice.push('manure, compost or legumes');
+  if (issues.includes('low in phosphorus')) advice.push('phosphate fertiliser');
+  const andList = xs => xs.length > 1 ? xs.slice(0, -1).join(', ') + ' and ' + xs[xs.length - 1] : xs[0];
+  return P(`<div class="split"><div class="stack-v">${verdict(chip(s.texture.name || 'Soil', issues.length > 2 ? 'warn' : issues.length ? 'mod' : 'good'), head, `Average of the top 20 cm across ${esc(R.name)}, excluding towns and water.${advice.length ? ' These are usually managed with ' + andList(advice) + '.' : ''} Individual fields can differ a lot from the average.`)}
+    <div class="rows">${SOIL_ROWS.map(([k, lbl, f, u]) => `<div class="row soilrow"><span class="nm">${lbl}</span><span class="sc">${f(s[k].value)}${u ? ' ' + u : ''}</span>${s[k].rating ? chip(s[k].rating, soilCol(k, s[k].rating)) : ''}</div>`).join('')}
+      <div class="row soilrow"><span class="nm">Texture (most common)</span><span class="sc">${esc(s.texture.name || '–')}</span></div></div>
+    <p class="note">iSDAsoil (Innovative Solutions for Decision Agriculture), 30 m machine-learning predictions from about 100,000 soil samples, representing 2001–2017. These are modelled estimates, not lab tests: test a field's soil before buying lime or fertiliser.</p></div>
+    ${landHtml}</div>`); };
 
 VIEWS.crop.season = R => { const s = R.season, od = s.onset && isNum(s.onset_normal_doy) ? doyOf(s.onset) - s.onset_normal_doy : null;
   const txt = `Rainfall is ${fx(Math.abs(R.rain.anomaly_pct))}% ${R.rain.anomaly_pct >= 0 ? 'above' : 'below'} normal from January to ${MONTH[R.rain.last_month - 1]}. ` +
@@ -570,6 +609,8 @@ function methodsView() {
       <li><strong>Evapotranspiration:</strong> MODIS MOD16A2 potential evapotranspiration, 500 m.</li>
       <li><strong>Water:</strong> Sentinel-1 radar (VV backscatter below −16 dB) within the JRC Global Surface Water maximum extent; JRC occurrence for permanent water.</li>
       <li><strong>Forest:</strong> Hansen Global Forest Change v1.13 (tree cover 2000, loss year to 2025).</li>
+      <li><strong>Land cover:</strong> ESA WorldCover 2021 v200, 10 m (CC BY 4.0).</li>
+      <li><strong>Soil:</strong> iSDAsoil Africa v1, 30 m topsoil predictions (CC BY 4.0).</li>
       <li><strong>Boundaries:</strong> geoBoundaries for Ghana's 16 regions and 260 districts (2019 set, CC BY 4.0).</li>
     </ul>
     <h3>Methods</h3>
@@ -578,7 +619,9 @@ function methodsView() {
       <li><strong>SPI-3</strong> fits a gamma distribution, with a probability of zero rain, to three-month totals for each calendar month (McKee et al., 1993).</li>
       <li><strong>Onset</strong> is the first 3-day spell with at least 20 mm after 1 April (north) or 1 March (south), not followed by 7 dry days within 30 days. <strong>Cessation</strong> is the first wet day after 1 September (north) or 15 October (south) followed by less than 10 mm in 20 days.</li>
       <li><strong>Vegetation condition (VCI)</strong> is a standardised form of Kogan's (1995) index: how far this month's regional NDVI is from the same month in other years since 2001, scaled to 0–100 where 50 is typical. Changes smaller than the satellite's noise (0.04 NDVI) cannot reach the extremes. Only complete months are used.</li>
-      <li><strong>Crop suitability</strong> scores growing-season rainfall (annual crops) or annual rainfall (perennials), mean temperature and rainy-season length against simplified FAO ECOCROP ranges. Soil is not yet included.</li>
+      <li><strong>Farmland-only vegetation:</strong> a 250 m MODIS pixel counts as farmland when at least 30% of the 10 m WorldCover pixels inside it are cropland. Where cropland covers at least 3% of a region or district, its NDVI and VCI use farmland pixels only; elsewhere (mostly cocoa and forest areas) they use all vegetation. The greening trend always uses all land.</li>
+      <li><strong>Crop suitability</strong> scores growing-season rainfall (annual crops) or annual rainfall (perennials), mean temperature and rainy-season length against simplified FAO ECOCROP ranges, then lowers the score by up to 30% for topsoil pH outside the crop's range, soil shallower than it needs, or heavy clay for root and pod crops.</li>
+      <li><strong>Soil ratings</strong> use the iSDAsoil 0–20 cm means, back-transformed per pixel and averaged over land that is not built-up or water. Bands: pH below 4.5 extremely, 4.5–5.5 strongly, 5.5–6.5 moderately acid; organic carbon below 6, 12 and 20 g/kg very low, low, moderate; total nitrogen below 0.5, 1 and 2 g/kg; extractable phosphorus below 10 and 25 ppm; potassium below 60 and 150 ppm; bedrock shallower than 50 and 100 cm.</li>
       <li><strong>Past seasons</strong> (2001 onward) use full-year rainfall, SPI-3 at the end of the main season, and vegetation condition averaged over the growing season. Surface water and map images cover the latest month only.</li>
       <li><strong>Risk indices</strong> are transparent heuristics (0–100) combining SPI, rainfall anomaly, dry spells, surface water, NDVI trend and VCI. They are indicators for discussion, not validated predictions.</li>
     </ul>

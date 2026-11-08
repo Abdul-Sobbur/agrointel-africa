@@ -201,11 +201,72 @@ def season_rain(normal: list[float], regime: str) -> float:
     return float(max(sum(normal[2:7]), sum(normal[8:11])))
 
 
+TEXTURE = {1: "Clay", 2: "Silty clay", 3: "Sandy clay", 4: "Clay loam", 5: "Silty clay loam", 6: "Sandy clay loam",
+           7: "Loam", 8: "Silt loam", 9: "Sandy loam", 10: "Silt", 11: "Loamy sand", 12: "Sand"}
+HEAVY = {1, 2, 3}   # clays that are hard to work and poorly drained for root and pod crops
+
+# Rating bands for topsoil (0-20 cm) properties: (upper limit, label) checked in order.
+SOIL_BANDS = {
+    "ph": [(4.5, "Extremely acid"), (5.5, "Strongly acid"), (6.5, "Moderately acid"), (7.5, "Neutral"),
+           (99, "Alkaline")],
+    "oc": [(6, "Very low"), (12, "Low"), (20, "Moderate"), (999, "High")],          # organic carbon, g/kg
+    "n": [(0.5, "Very low"), (1.0, "Low"), (2.0, "Moderate"), (99, "High")],          # total nitrogen, g/kg
+    "p": [(10, "Low"), (25, "Moderate"), (9999, "High")],                              # extractable P, ppm
+    "k": [(60, "Low"), (150, "Moderate"), (9999, "High")],                             # extractable K, ppm
+    "depth": [(50, "Shallow"), (100, "Moderately deep"), (999, "Deep")],               # depth to bedrock, cm
+}
+
+
+def soil_rating(prop: str, v: float | None) -> str | None:
+    if v is None or (isinstance(v, float) and math.isnan(v)):
+        return None
+    return next(lbl for top, lbl in SOIL_BANDS[prop] if v < top)
+
+
+def soil_profile(raw: dict | None) -> dict | None:
+    """Back-transformed iSDAsoil means for one unit → values, ratings and texture name."""
+    if not raw or raw.get("ph") is None:
+        return None
+    out = {}
+    for p in ("ph", "oc", "n", "p", "k", "depth"):
+        v = raw.get(p)
+        d = 2 if p == "n" else 1 if p in ("ph", "oc") else 0
+        out[p] = {"value": None if v is None else round(float(v), d), "rating": soil_rating(p, v)}
+    t = raw.get("texture")
+    out["texture"] = {"code": int(t) if t else None, "name": TEXTURE.get(int(t)) if t else None}
+    return out
+
+
+def _soil_factor(c: dict, soil: dict | None) -> tuple[float, list[str]]:
+    """0-1 soil fit for one crop and the reasons it falls short."""
+    if not soil:
+        return 1.0, []
+    f, why = 1.0, []
+    ph = soil["ph"]["value"]
+    if ph is not None and "ph" in c:
+        fp = _trap(ph, *c["ph"], 0.6)
+        if fp < 0.9:
+            why.append("soil too acidic" if ph < c["ph"][0] else "soil too alkaline")
+        f *= fp
+    dep = soil["depth"]["value"]
+    if dep is not None and "depth" in c:
+        fd = _trap(dep, c["depth"], 10_000, 0.4 * c["depth"])
+        if fd < 0.9:
+            why.append("shallow soil")
+        f *= fd
+    if c.get("light") and soil["texture"]["code"] in HEAVY:
+        f *= 0.6
+        why.append("heavy clay soil")
+    return f, why
+
+
 def crop_suitability(annual_rain: float, mean_temp: float, season_days: float | None, forest_zone: bool,
-                     growing_rain: float | None = None) -> list[dict]:
-    """Score 0-100 per crop from long-term climate; classes follow FAO S1/S2/S3/N.
+                     growing_rain: float | None = None, soil: dict | None = None) -> list[dict]:
+    """Score 0-100 per crop from long-term climate and topsoil; classes follow FAO S1/S2/S3/N.
 
     Annual crops are judged on growing-season rainfall (when given), perennials on annual rainfall.
+    Soil can lower a climate score by at most 30%: acidity and low fertility are usually
+    correctable, so soil downgrades rather than rules out a crop.
     """
     out = []
     for c in CROPS:
@@ -214,12 +275,18 @@ def crop_suitability(annual_rain: float, mean_temp: float, season_days: float | 
         ts = _trap(mean_temp, *c["temp"], 2.2)
         ls = 1.0 if season_days is None else _trap(season_days, c["los"], 400, 30)
         wet = _trap(annual_rain, 0, c["max_annual"], 250) if c.get("max_annual") else 1.0  # too wet a climate
-        score = 100 * rs * ts * ls * wet * (0.32 if c.get("forest") and not forest_zone else 1.0)
+        climate = 100 * rs * ts * ls * wet * (0.32 if c.get("forest") and not forest_zone else 1.0)
+        sf, why = _soil_factor(c, soil)
+        score = climate * (0.7 + 0.3 * sf)
         # tie-breaker: how close the climate sits to the middle of the crop's optimal ranges (1 = centre)
         centre = 1 - 0.5 * (abs(rain - sum(c["rain"]) / 2) / ((c["rain"][1] - c["rain"][0]) / 2)
                             + abs(mean_temp - sum(c["temp"]) / 2) / ((c["temp"][1] - c["temp"][0]) / 2))
-        out.append({"key": c["key"], "name": c["name"], "score": round(score), "class": suit_class(score),
-                    "fit": round(centre, 3)})
+        item = {"key": c["key"], "name": c["name"], "score": round(score), "class": suit_class(score),
+                "fit": round(centre + 0.2 * sf, 3), "climate": round(climate)}
+        if soil:
+            item["soil"] = round(sf, 2)
+            item["limits"] = why
+        out.append(item)
     return sorted(out, key=lambda d: (-d["score"], -d["fit"]))
 
 

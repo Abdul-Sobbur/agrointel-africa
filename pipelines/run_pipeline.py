@@ -28,13 +28,14 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from agrointel import analysis as A  # noqa: E402
 from agrointel import earth as E  # noqa: E402
-from agrointel.config import (CACHE_DIR, DISTRICTS_GEOJSON, FARMS_GEOJSON, FIRST_YEAR,  # noqa: E402
-                              NDVI_BASE_START, NORMAL_END, NORMAL_START, REGIONS, REGIONS_GEOJSON,
-                              SEASON_BASE, TEMP_TREND_START, WEB_DATA)
+from agrointel.config import (CACHE_DIR, CROPLAND_MIN_PCT, DISTRICTS_GEOJSON, FARMS_GEOJSON,  # noqa: E402
+                              FIRST_YEAR, HISTORY_BUDGET_MIN, LANDCOVER, NDVI_BASE_START, NORMAL_END,
+                              NORMAL_START, REGIONS, REGIONS_GEOJSON, SEASON_BASE, TEMP_TREND_START, WEB_DATA)
 
 log = logging.getLogger("agrointel")
 GROWING = {"uni": range(5, 11), "bi": range(3, 12)}   # months used for a past season's vegetation score
 SEASON_END = {"uni": 10, "bi": 11}                     # month whose SPI-3 summarises a past season
+DEADLINE = time.monotonic() + HISTORY_BUDGET_MIN * 60  # after this, missing history waits for the next run
 
 
 # ---------------------------------------------------------------- helpers
@@ -89,8 +90,12 @@ def update_monthly(fc, keys, cache_name, fetch, first_year, year, last_month, re
     """Fill a {unit: {"YYYY-MM": value}} cache, always refreshing the last two years."""
     cache = {} if rebuild else load(cache_name)
     have = {ym[:4] for k in cache.values() for ym in k}
+    deferred = 0
     for y in range(first_year, year + 1):
         if str(y) in have and y < year - 1:
+            continue
+        if y < year - 1 and time.monotonic() > DEADLINE:
+            deferred += 1
             continue
         lm = last_month if y == year else 12
         res = soft(f"{cache_name} {y}", fetch, fc, y, lm, default={}) if fetch is E.chirps_monthly_year \
@@ -107,7 +112,21 @@ def update_monthly(fc, keys, cache_name, fetch, first_year, year, last_month, re
                 else:
                     cache.get(k, {}).pop(ym, None)
         save(cache_name, cache)
+    if deferred:
+        log.warning("%s: time budget used, %d past years left for the next run", cache_name, deferred)
     return cache
+
+
+def static_cache(name, label, fetch, fc, rebuild):
+    """Datasets that do not change between runs (soil, land cover): fetch once, then reuse."""
+    data = {} if rebuild else load(name)
+    if not data:
+        data = soft(label, fetch, fc, default={}) or {}
+        n = sum(1 for row in data.values() for v in row.values() if v is not None)
+        (log.info if n else log.warning)("%s: %d values", label, n)
+        if n:
+            save(name, data)
+    return data
 
 
 def update_season_history(fc, keys, regimes, cache_name, last_year, rebuild):
@@ -116,6 +135,9 @@ def update_season_history(fc, keys, regimes, cache_name, last_year, rebuild):
     for y in range(SEASON_BASE[0], last_year + 1):
         if all(str(y) in cache.get(k, {}) for k in keys):
             continue
+        if y < last_year and time.monotonic() > DEADLINE:
+            log.warning("%s: time budget used, %s onwards left for the next run", cache_name, y)
+            break
         dates, daily = soft(f"season history {y}", E.chirps_daily_year, fc, y, default=([], {}))
         log.info("%s %s: %d days", cache_name, y, len(dates))
         if not dates:
@@ -142,6 +164,10 @@ def fetch_level(level, geo, keys, regimes, year, last_month, latest, nyear, nmon
     out["current_season"] = {k: A.season_indicators(dates, daily.get(k, []), regimes[k]) for k in keys}
     out["ndvi"] = update_monthly(fc, keys, f"ndvi_monthly_qa{sfx}.json", E.ndvi_monthly_year, NDVI_BASE_START,
                                  nyear, nmonth, rebuild)
+    out["land"] = static_cache(f"landcover{sfx}.json", f"{level} land cover", E.land_cover, fc, rebuild)
+    out["soil"] = static_cache(f"soil{sfx}.json", f"{level} soil", E.soil_stats, fc, rebuild)
+    out["ndvi_crop"] = update_monthly(fc, keys, f"ndvi_monthly_crop{sfx}.json", E.ndvi_crop_monthly_year,
+                                      NDVI_BASE_START, nyear, nmonth, rebuild)
     log.info("%s temperature", level)
     out["temps"] = soft(f"{level} temperature", E.era5_annual_temps, fc, TEMP_TREND_START, year, default={})
     pet_norm = {} if rebuild else load(f"pet_normal{sfx}.json")
@@ -178,10 +204,22 @@ def build_unit(k, data, regime, forest, year, last_month, latest, wy, wm):
     known = [v for v in tvals if v is not None]
     tnorm = trow.get("normal") or (sum(known) / len(known) if known else float("nan"))
 
-    nser = as_tuple_series(data["ndvi"].get(k, {}))
+    lc = data["land"].get(k, {})
+    land_km2 = sum(v or 0 for c, v in lc.items() if c != "c80")
+    crop_pct = (lc.get("c40") or 0) / land_km2 * 100 if land_km2 else None
+    land = {"pct": {LANDCOVER[int(c[1:])]: r((v or 0) / sum(x or 0 for x in lc.values()) * 100, 1)
+                    for c, v in lc.items()} if lc else {}, "cropland_pct": r(crop_pct, 1),
+            "cropland_km2": r(lc.get("c40"), 0), "source": "ESA WorldCover 2021"}
+
+    all_ser = as_tuple_series(data["ndvi"].get(k, {}))
+    crop_ser = as_tuple_series(data["ndvi_crop"].get(k, {}))
+    base_years = {y for (y, m) in crop_ser if NDVI_BASE_START <= y <= NORMAL_END}
+    use_crop = crop_pct is not None and crop_pct >= CROPLAND_MIN_PCT and len(base_years) >= 15
+    nser = crop_ser if use_crop else all_ser
+    ndvi_basis = "cropland" if use_crop else "all land"
     nnorm = [nn(x) for x in A.monthly_normals(nser, NDVI_BASE_START, NORMAL_END)]
     ann = {}
-    for (y, m), v in nser.items():
+    for (y, m), v in all_ser.items():  # greening trend over all land: degradation is not only on farms
         ann.setdefault(y, []).append(v)
     ay = sorted(y for y, v in ann.items() if len(v) == 12)
     nslope, _ = A.linear_trend(ay, [sum(ann[y]) / 12 for y in ay])
@@ -196,7 +234,8 @@ def build_unit(k, data, regime, forest, year, last_month, latest, wy, wm):
     wnorm = sum(wb) / len(wb) if wb else None
     wpct = (w.get("current") or 0) / wnorm * 100 if wnorm and wnorm > 0.5 else None
 
-    suit = A.crop_suitability(sum(normal), tnorm, los_n, forest, A.season_rain(normal, regime))
+    soil = A.soil_profile(data["soil"].get(k))
+    suit = A.crop_suitability(sum(normal), tnorm, los_n, forest, A.season_rain(normal, regime), soil)
 
     years = {}
     for y in range(FIRST_YEAR, year + 1):
@@ -260,10 +299,10 @@ def build_unit(k, data, regime, forest, year, last_month, latest, wy, wm):
                           "rainy_days": rd_n, "dry_spells": ds_n},
         "temp": {"years": tyears, "annual": [r(v, 2) for v in tvals], "trend_decade": r(slope * 10, 2),
                  "normal": r(tnorm, 2)},
-        "ndvi_normal": [r(v, 3) for v in nnorm], "ndvi_trend_decade": r(ntrend, 3),
+        "ndvi_normal": [r(v, 3) for v in nnorm], "ndvi_trend_decade": r(ntrend, 3), "ndvi_basis": ndvi_basis,
         "water": {"month": f"{wy}-{wm:02d}", "current_km2": r(w.get("current"), 1), "normal_km2": r(wnorm, 1),
                   "pct": r(wpct, 0), "permanent_km2": r(w.get("permanent"), 1)},
-        "suitability": suit,
+        "suitability": suit, "soil": soil, "land": land,
     }
     return static, years
 

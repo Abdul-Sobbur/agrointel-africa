@@ -10,7 +10,7 @@ from pathlib import Path
 
 import ee
 
-from .config import DS, NORMAL_START, NORMAL_END, WATER_BASE_YEARS
+from .config import CROPLAND_PIXEL_FRAC, DS, LANDCOVER, NORMAL_START, NORMAL_END, WATER_BASE_YEARS
 
 import logging
 
@@ -135,6 +135,67 @@ def ndvi_monthly_year(fc, year: int) -> dict[str, dict]:
         s = ee.Date.fromYMD(year, m, 1)
         bands.append(_safe(col.filterDate(s, s.advance(1, "month")), f"m{m:02d}").multiply(0.0001).rename(f"m{m:02d}"))
     return _reduce(ee.Image.cat(bands), fc, scale=500)
+
+
+def _worldcover() -> ee.Image:
+    return ee.ImageCollection(DS["worldcover"]).first().select("Map")
+
+
+def cropland_mask() -> ee.Image:
+    """1 where a 250 m MODIS pixel is mostly farmland (share of 10 m WorldCover cropland pixels)."""
+    modis = ee.Image(ee.ImageCollection(DS["modis_ndvi"]).first()).select("NDVI").projection()
+    frac = (_worldcover().eq(40).reduceResolution(reducer=ee.Reducer.mean(), maxPixels=1024)
+            .reproject(crs=modis))
+    return frac.gte(CROPLAND_PIXEL_FRAC)
+
+
+def ndvi_crop_monthly_year(fc, year: int) -> dict[str, dict]:
+    """Monthly NDVI over farmland pixels only (ESA WorldCover 2021 cropland)."""
+    col, mask = _ndvi_col(), cropland_mask()
+    bands = []
+    for m in range(1, 13):
+        s = ee.Date.fromYMD(year, m, 1)
+        bands.append(_safe(col.filterDate(s, s.advance(1, "month")), f"m{m:02d}")
+                     .multiply(0.0001).updateMask(mask).rename(f"m{m:02d}"))
+    return _reduce(ee.Image.cat(bands), fc, scale=250, tile_scale=8)
+
+
+# ---------------------------------------------------------------- land cover (ESA WorldCover) and soil (iSDAsoil)
+def land_cover(fc) -> dict[str, dict]:
+    """Area (km2) of each WorldCover class per unit, at 100 m."""
+    wc, area = _worldcover(), ee.Image.pixelArea().divide(1e6)
+    img = ee.Image.cat([wc.eq(c).multiply(area).rename(f"c{c}") for c in LANDCOVER])
+    return _reduce(img, fc, scale=100, reducer=ee.Reducer.sum(), tile_scale=8)
+
+
+def _isda(name: str, band: str = "mean_0_20") -> ee.Image:
+    return ee.Image(f"{DS['isda']}/{name}").select(band)
+
+
+def soil_stats(fc) -> dict[str, dict]:
+    """Topsoil (0-20 cm) iSDAsoil means per unit over land that is not built-up or water.
+
+    Values are back-transformed per pixel before averaging, as the iSDAsoil
+    catalogue specifies: pH x/10; organic C, P and K exp(x/10)-1; total N exp(x/100)-1;
+    depth to bedrock in cm as stored.
+    """
+    wc = _worldcover()
+    land = wc.neq(50).And(wc.neq(80))
+    expm1 = lambda img, d: img.divide(d).exp().subtract(1)  # noqa: E731
+    num = ee.Image.cat([
+        _isda("ph").divide(10).rename("ph"),
+        expm1(_isda("carbon_organic"), 10).rename("oc"),
+        expm1(_isda("nitrogen_total"), 100).rename("n"),
+        expm1(_isda("phosphorus_extractable"), 10).rename("p"),
+        expm1(_isda("potassium_extractable"), 10).rename("k"),
+        _isda("bedrock_depth", "mean_0_200").rename("depth"),
+    ]).updateMask(land)
+    out = _reduce(num, fc, scale=250, tile_scale=8)
+    tex = _isda("texture_class", "texture_0_20").rename("texture").updateMask(land)
+    modes = _reduce(tex, fc, scale=250, reducer=ee.Reducer.mode(), tile_scale=8)
+    for k, row in out.items():
+        row["texture"] = modes.get(k, {}).get("texture")
+    return out
 
 
 def ndvi_latest() -> tuple[ee.Image, dt.date]:

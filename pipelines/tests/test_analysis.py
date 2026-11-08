@@ -114,3 +114,24 @@ def test_risk_scores_rise_with_drought():
                         water_pct=70, ndvi_trend_decade=-0.02, vci_latest=20)
     assert dry["drought"] > calm["drought"] and dry["composite"] > calm["composite"]
     assert all(2 <= v <= 98 for v in dry.values())
+
+
+def test_soil_profile_and_ratings():
+    s = A.soil_profile({"ph": 5.2, "oc": 9.4, "n": 0.8, "p": 7, "k": 120, "depth": 140, "texture": 9})
+    assert s["ph"]["rating"] == "Strongly acid"
+    assert s["oc"]["rating"] == "Low" and s["n"]["rating"] == "Low"
+    assert s["p"]["rating"] == "Low" and s["k"]["rating"] == "Moderate"
+    assert s["depth"]["rating"] == "Deep" and s["texture"]["name"] == "Sandy loam"
+    assert A.soil_profile(None) is None and A.soil_profile({"ph": None}) is None
+
+
+def test_soil_lowers_but_never_rules_out():
+    good = A.soil_profile({"ph": 6.3, "oc": 15, "n": 1.4, "p": 20, "k": 160, "depth": 150, "texture": 7})
+    poor = A.soil_profile({"ph": 4.3, "oc": 5, "n": 0.4, "p": 4, "k": 40, "depth": 30, "texture": 1})
+    g = {c["key"]: c for c in A.crop_suitability(1000, 28.8, 150, False, 850, good)}
+    p = {c["key"]: c for c in A.crop_suitability(1000, 28.8, 150, False, 850, poor)}
+    for k in g:
+        assert p[k]["score"] <= g[k]["score"]
+        assert p[k]["score"] >= 0.7 * g[k]["climate"] - 1
+    assert "soil too acidic" in p["soy"]["limits"] and "heavy clay soil" in p["yam"]["limits"]
+    assert g["maize"]["limits"] == []

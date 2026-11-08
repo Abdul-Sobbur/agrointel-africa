@@ -103,6 +103,37 @@ class FakeEarth(SimpleNamespace):
             res[k] = row
         return res
 
+    def ndvi_crop_monthly_year(self, fc, y):
+        """Farmland greens up later and browns sooner than the surrounding land."""
+        res = self.ndvi_monthly_year(fc, y)
+        for k, row in res.items():
+            for m in row:
+                row[m] = round(row[m] * (0.93 + 0.04 * _rng(k, "cropshift").random()), 4)
+        return res
+
+    def land_cover(self, fc):
+        out = {}
+        for k, g in _units(fc):
+            north = REGIONS[g]["regime"] == "uni"
+            u = _rng(k, "lc").random(4)
+            area = 800 + 4000 * u[0]
+            shares = {10: (0.2 if north else 0.62) + 0.1 * u[1], 20: 0.12, 30: (0.3 if north else 0.08),
+                      40: (0.28 if north else 0.07) + 0.1 * u[2], 50: 0.02 + (0.3 if g == "greater-accra" else 0.01),
+                      60: 0.005, 80: 0.01 + 0.03 * u[3], 90: 0.004, 95: 0.0 if g not in ("volta", "western") else 0.002}
+            tot = sum(shares.values())
+            out[k] = {f"c{c}": area * v / tot for c, v in shares.items()}
+        return out
+
+    def soil_stats(self, fc):
+        out = {}
+        for k, g in _units(fc):
+            north = REGIONS[g]["regime"] == "uni"
+            u = _rng(k, "soil").random(7)
+            out[k] = {"ph": (6.0 if north else 5.3) + 0.6 * (u[0] - 0.5), "oc": (7 if north else 14) + 6 * u[1],
+                      "n": (0.6 if north else 1.1) + 0.5 * u[2], "p": 4 + 14 * u[3], "k": 60 + 140 * u[4],
+                      "depth": 60 + 120 * u[5], "texture": 9 if north else (6 if u[6] < 0.6 else 4)}
+        return out
+
     def era5_annual_temps(self, fc, first, last):
         res = {}
         for k, g in _units(fc):

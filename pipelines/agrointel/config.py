@@ -28,7 +28,22 @@ DS = {
     "s2": "COPERNICUS/S2_SR_HARMONIZED",                # 10 m optical
     "jrc_water": "JRC/GSW1_4/GlobalSurfaceWater",       # band: occurrence (%)
     "hansen": "UMD/hansen/global_forest_change_2025_v1_13",  # band: lossyear (1-25 = 2001-2025)
+    "worldcover": "ESA/WorldCover/v200",                # 10 m land cover, 2021; class 40 = cropland
+    "isda": "ISDASOIL/Africa/v1",                       # iSDAsoil 30 m soil predictions (prefix)
 }
+
+# Farmland-only vegetation: a 250 m MODIS pixel counts as farmland when at least this
+# share of its 10 m WorldCover pixels is cropland; a unit switches to farmland-only
+# NDVI when cropland covers at least CROPLAND_MIN_PCT of its land.
+CROPLAND_PIXEL_FRAC = 0.3
+CROPLAND_MIN_PCT = 3.0
+
+# ESA WorldCover classes reported in the land-cover breakdown
+LANDCOVER = {10: "Tree cover", 20: "Shrubland", 30: "Grassland", 40: "Cropland", 50: "Built-up",
+             60: "Bare / sparse", 80: "Water", 90: "Wetland", 95: "Mangroves"}
+
+# Minutes the pipeline may spend back-filling history before it defers the rest to the next run
+HISTORY_BUDGET_MIN = 110
 
 # Region metadata. "regime": uni = one rainy season (north), bi = two seasons (south).
 REGIONS = {
@@ -52,15 +67,16 @@ REGIONS = {
 
 # Crop requirements: rainfall range (mm) per growing season for annual crops and per
 # year for perennials, mean temperature range (deg C), minimum rainy-season length
-# (days). Simplified from FAO ECOCROP optimal ranges.
+# (days). Simplified from FAO ECOCROP optimal ranges. Soil: optimal topsoil pH range,
+# minimum soil depth (cm) and, for root and pod crops, a preference for light soils.
 CROPS = [
-    {"key": "maize",   "name": "Maize",          "rain": (600, 1200),  "temp": (21, 28.5), "los": 100, "annual": True, "max_annual": 1900},
-    {"key": "sorghum", "name": "Sorghum",        "rain": (500, 1000),  "temp": (25, 33),   "los": 90,  "annual": True, "max_annual": 1300},
-    {"key": "millet",  "name": "Pearl millet",   "rain": (400, 900),   "temp": (26, 34),   "los": 75,  "annual": True, "max_annual": 1100},
-    {"key": "rice",    "name": "Rice (lowland)", "rain": (900, 1600) , "temp": (24, 32),   "los": 110, "annual": True},
-    {"key": "soy",     "name": "Soybean",        "rain": (600, 1100),  "temp": (24, 30),   "los": 100, "annual": True, "max_annual": 1700},
-    {"key": "gnut",    "name": "Groundnut",      "rain": (500, 1000),  "temp": (25, 32),   "los": 90,  "annual": True, "max_annual": 1500},
-    {"key": "yam",     "name": "Yam",            "rain": (1000, 1500), "temp": (25, 30),   "los": 180, "annual": False},
-    {"key": "cassava", "name": "Cassava",        "rain": (1000, 1800), "temp": (24, 30),   "los": 180, "annual": False},
-    {"key": "cocoa",   "name": "Cocoa",          "rain": (1400, 2000), "temp": (22, 28),   "los": 210, "annual": False, "forest": True},
+    {"key": "maize",   "name": "Maize",          "rain": (600, 1200),  "temp": (21, 28.5), "los": 100, "annual": True, "max_annual": 1900, "ph": (5.5, 7.5), "depth": 50},
+    {"key": "sorghum", "name": "Sorghum",        "rain": (500, 1000),  "temp": (25, 33),   "los": 90,  "annual": True, "max_annual": 1300, "ph": (5.5, 7.5), "depth": 50},
+    {"key": "millet",  "name": "Pearl millet",   "rain": (400, 900),   "temp": (26, 34),   "los": 75,  "annual": True, "max_annual": 1100, "ph": (5.0, 7.5), "depth": 40},
+    {"key": "rice",    "name": "Rice (lowland)", "rain": (900, 1600) , "temp": (24, 32),   "los": 110, "annual": True, "ph": (5.0, 7.0), "depth": 40},
+    {"key": "soy",     "name": "Soybean",        "rain": (600, 1100),  "temp": (24, 30),   "los": 100, "annual": True, "max_annual": 1700, "ph": (6.0, 7.5), "depth": 50},
+    {"key": "gnut",    "name": "Groundnut",      "rain": (500, 1000),  "temp": (25, 32),   "los": 90,  "annual": True, "max_annual": 1500, "ph": (5.5, 7.0), "depth": 50, "light": True},
+    {"key": "yam",     "name": "Yam",            "rain": (1000, 1500), "temp": (25, 30),   "los": 180, "annual": False, "ph": (5.5, 6.5), "depth": 60, "light": True},
+    {"key": "cassava", "name": "Cassava",        "rain": (1000, 1800), "temp": (24, 30),   "los": 180, "annual": False, "ph": (5.0, 7.0), "depth": 50, "light": True},
+    {"key": "cocoa",   "name": "Cocoa",          "rain": (1400, 2000), "temp": (22, 28),   "los": 210, "annual": False, "forest": True, "ph": (5.0, 7.5), "depth": 100},
 ]

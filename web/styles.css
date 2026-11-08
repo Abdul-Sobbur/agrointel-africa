@@ -143,15 +143,15 @@ button,select,input{font:inherit;color:inherit}
 .demo-foot a{font-weight:700;text-decoration:none}
 
 .mods{display:grid;gap:14px;margin-top:36px;grid-template-columns:repeat(auto-fit,minmax(min(100%,210px),1fr))}
-.mod{background:var(--surface);border:1px solid var(--line);border-radius:20px;padding:22px;display:flex;flex-direction:column;gap:12px;text-decoration:none;color:inherit;transition:border-color .15s,transform .15s}
-.mod:hover{border-color:var(--accent);transform:translateY(-2px)}
-.mod .ic{width:44px;height:44px;border-radius:12px;display:grid;place-items:center;background:var(--accent-soft);color:var(--accent)}
-.mod .ic svg{width:24px;height:24px}
-.mod h3{font-size:20px}
-.mod ul{margin:0;padding:0;list-style:none;display:grid;gap:6px;color:var(--muted);font-size:14px}
-.mod li{padding-left:16px;text-indent:-16px}
-.mod li::before{content:"";display:inline-block;width:6px;height:6px;border-radius:50%;background:var(--leaf);margin-right:10px;vertical-align:2px}
-.mod .go{margin-top:auto;padding-top:6px;font-weight:700;font-size:14px;color:var(--accent)}
+.modc{background:var(--surface);border:1px solid var(--line);border-radius:20px;padding:22px;display:flex;flex-direction:column;gap:12px;text-decoration:none;color:inherit;transition:border-color .15s,transform .15s}
+.modc:hover{border-color:var(--accent);transform:translateY(-2px)}
+.modc .ic{width:44px;height:44px;border-radius:12px;display:grid;place-items:center;background:var(--accent-soft);color:var(--accent)}
+.modc .ic svg{width:24px;height:24px}
+.modc h3{font-size:20px}
+.modc ul{margin:0;padding:0;list-style:none;display:grid;gap:6px;color:var(--muted);font-size:14px}
+.modc li{padding-left:16px;text-indent:-16px}
+.modc li::before{content:"";display:inline-block;width:6px;height:6px;border-radius:50%;background:var(--leaf);margin-right:10px;vertical-align:2px}
+.modc .go{margin-top:auto;padding-top:6px;font-weight:700;font-size:14px;color:var(--accent)}
 .next{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-top:20px}
 .next span{border:1px dashed var(--line);border-radius:999px;padding:6px 12px;font-size:13px;font-weight:600;color:var(--muted)}
 .next .next-lbl{border:0;padding-left:0;font:500 12px var(--f-mono);letter-spacing:.06em;text-transform:uppercase;color:var(--gold)}
@@ -334,3 +334,13 @@ form.reg{display:grid;gap:12px;grid-template-columns:repeat(auto-fit,minmax(180p
 .leaflet-tooltip.val{background:rgba(17,20,46,.82);color:#fff;border:0;box-shadow:none;font:600 11px var(--f-mono);padding:2px 6px}
 .leaflet-tooltip.val::before{display:none}
 .loading{padding:40px;text-align:center;color:var(--muted)}
+
+/* soil and land */
+.lim{display:block;font-size:12px;font-weight:500;color:var(--warn)}
+.soilrow{grid-template-columns:minmax(0,1fr) auto auto;border-bottom:1px solid var(--line);border-radius:0}
+.basis{font-size:14px;background:var(--accent-soft);border-radius:12px;padding:10px 12px}
+.lcbar{display:flex;height:22px;border-radius:8px;overflow:hidden;background:var(--sunk)}
+.lcbar span{display:block;height:100%}
+.lclist{display:flex;flex-wrap:wrap;gap:6px 16px;font-size:13px;color:var(--muted)}
+.lclist i{display:inline-block;width:10px;height:10px;border-radius:3px;margin-right:6px;vertical-align:-1px}
+.lclist b{color:var(--ink);font-weight:600;margin-left:4px}
