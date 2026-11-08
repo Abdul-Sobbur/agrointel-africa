@@ -18,15 +18,31 @@ const store = { get(k, f) { try { const v = localStorage.getItem(k); return v ? 
                 set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) { /* storage unavailable */ } } };
 
 /* ---------------- data ---------------- */
-const D = { meta: null, geo: null, farms: null, regions: {} };
+const D = { meta: null, geo: null, dgeo: null, farms: null, units: {}, sum: { region: null, district: null } };
 async function getJSON(p) { const r = await fetch(p, { cache: 'no-cache' }); if (!r.ok) throw new Error(p + ' ' + r.status); return r.json(); }
-async function region(k) { if (!D.regions[k]) D.regions[k] = await getJSON(`data/regions/${k}.json`); return D.regions[k]; }
-const summary = k => D.meta.regions.find(r => r.key === k);
+async function unitData(level, k) { const id = level + ':' + k; if (!D.units[id]) D.units[id] = await getJSON(`data/${level}s/${k}.json`); return D.units[id]; }
+const summary = k => D.meta.regions.find(r => r.key === k);                 // current year, regions (landing page)
+const sumUnit = (level, k) => ((D.sum[level] || { units: [] }).units).find(u => u.key === k);
+const sumYear = (level, k, y) => { const u = sumUnit(level, k); return u ? u.years[String(y)] : null; };
+const curLevel = () => state.district ? 'district' : 'region';
+const curKey = () => state.district || state.region;
+const isCurrentYear = () => Number(state.year) === Number(D.meta.year);
+
+/* Shape one season of a unit's file into the object the views read. */
+function asView(U, y) {
+  const b = U.years[String(y)]; if (!b) return null;
+  const cur = Number(y) === Number(U.current_year), sn = U.season_normal || {};
+  return { key: U.key, name: U.name, level: U.level, region: U.region, zone: U.zone, regime: U.regime, year: Number(y), isCurrent: cur,
+    rain: { ...b.rain, normal: U.rain_normal, annual_normal: U.annual_normal, spi3_latest: b.rain.spi3_ref, latest_date: cur ? U.latest_date : `${y}-12-31` },
+    season: { ...b.season, onset_normal_doy: sn.onset_doy, cessation_normal_doy: sn.cessation_doy, los_normal: sn.los, rainy_days_normal: sn.rainy_days, dry_spells_normal: sn.dry_spells },
+    temp: U.temp, ndvi: { year: Number(y), ...b.ndvi, normal: U.ndvi_normal, trend_decade: U.ndvi_trend_decade },
+    water: U.water, balance: b.balance, suitability: U.suitability, risk: b.risk, status: b.status };
+}
 
 /* ---------------- state ---------------- */
-let state = Object.assign({ region: 'northern', ind: 'risk', sub: { crop: 'health', climate: 'rain', water: 'surface', risk: 'summary', farms: 'trace' }, farm: null },
+let state = Object.assign({ region: 'northern', district: null, year: null, level: 'region', ind: 'risk', sub: { crop: 'health', climate: 'rain', water: 'surface', risk: 'summary', farms: 'trace' }, farm: null },
   store.get('agrointel.state', {}));
-const save = () => store.set('agrointel.state', { region: state.region, ind: state.ind, sub: state.sub, farm: state.farm });
+const save = () => store.set('agrointel.state', { region: state.region, district: state.district, year: state.year, level: state.level, ind: state.ind, sub: state.sub, farm: state.farm });
 
 /* ---------------- classes ---------------- */
 const level = v => !isNum(v) ? ['No data', 'neu'] : v < 30 ? ['Low', 'good'] : v < 50 ? ['Moderate', 'mod'] : v < 70 ? ['High', 'warn'] : ['Very high', 'bad'];
@@ -105,16 +121,20 @@ function newMap(id, base = 'light') {
   BASE[base]().addTo(m); maps.push(m); return m;
 }
 const regionFeature = k => D.geo.features.find(f => f.properties.key === k);
+const districtFeature = k => D.dgeo && D.dgeo.features.find(f => f.properties.key === k);
 function regionMap(id, layer) {
   const m = newMap(id); if (!m) return;
   const f = regionFeature(state.region);
   const outline = L.geoJSON(f, { style: { color: '#11142E', weight: 2, fill: false } }).addTo(m);
-  m.fitBounds(outline.getBounds(), { padding: [12, 12] });
+  const df = state.district && districtFeature(state.district);
+  const focus = df ? L.geoJSON(df, { style: { color: '#E3A015', weight: 3, fill: false } }).addTo(m) : outline;
+  m.fitBounds(focus.getBounds(), { padding: [12, 12] });
   const mm = D.meta.maps && D.meta.maps.regions && D.meta.maps.regions[state.region];
   if (mm && layer) L.imageOverlay(`data/maps/${state.region}_${layer}.png?v=${encodeURIComponent(D.meta.generated)}`, mm.bounds, { opacity: .9 }).addTo(m);
   return m;
 }
-const mapMissing = () => D.meta.maps ? '' : '<p class="note">Map images appear after the first Earth Engine pipeline run.</p>';
+const mapMissing = () => !D.meta.maps ? '<p class="note">Map images appear after the first Earth Engine pipeline run.</p>'
+  : !isCurrentYear() ? `<p class="note">Maps show the latest imagery (${fmtDate(D.meta.maps.ndvi_date)}), not ${state.year}.</p>` : '';
 
 /* ---------------- shell ---------------- */
 const ICON = {
@@ -170,7 +190,7 @@ async function route() {
   clearMaps();
   if (!inApp) { window.scrollTo(0, 0); return; }
   renderNav(h);
-  $('#region').value = state.region;
+  syncPickers();
   window.scrollTo(0, 0);
   await renderView(h);
 }
@@ -181,9 +201,13 @@ async function renderView(mod) {
   if (mod === 'methods') { view.innerHTML = methodsView(); return; }
   if (mod === 'overview') { view.innerHTML = overview(); afterOverview(); return; }
   view.innerHTML = '<p class="loading">Loading…</p>';
-  const R = await region(state.region);
+  let U;
+  try { U = await unitData(curLevel(), curKey()); } catch (e) { view.innerHTML = `<p class="loading">District data is not available yet. It appears after the next pipeline run.</p>`; return; }
+  const R = asView(U, state.year);
+  if (!R) { view.innerHTML = `<p class="loading">No data for ${esc(U.name)} in ${state.year}.</p>`; return; }
   const m = MODS[mod], sub = state.sub[mod];
-  view.innerHTML = `<div class="mhead"><span class="crumb">${esc(R.name)} Region · ${R.year} season to ${MONTH[R.rain.last_month - 1]}</span><h1>${m.full}</h1><div class="kente thin"></div></div>
+  const place = R.level === 'district' ? `${esc(R.name)} · ${esc((summary(R.region) || {}).name || '')} Region` : `${esc(R.name)} Region`;
+  view.innerHTML = `<div class="mhead"><span class="crumb">${place} · ${R.year} season${R.isCurrent ? ' to ' + MONTH[R.rain.last_month - 1] : ''}</span><h1>${m.full}</h1><div class="kente thin"></div></div>
     <div class="subs" role="tablist">${m.subs.map(([k, l]) => `<button class="sub" role="tab" type="button" data-sub="${k}" aria-selected="${k === sub}">${l}</button>`).join('')}</div>
     ${VIEWS[mod][sub](R)}
     <p class="disclaimer">${D.meta.sample ? 'Sample data generated offline. ' : ''}Indicators are computed automatically from open satellite and climate data and have not been validated in the field. See <a href="#methods">data and methods</a>.</p>`;
@@ -193,55 +217,73 @@ async function renderView(mod) {
 
 /* ---------------- overview ---------------- */
 function indValue(r, ind) {
-  if (ind === 'rain') { const a = r.rain_anom; return [a < -20 ? 'bad' : a < -10 ? 'warn' : a > 25 ? 'neu' : 'good', sgn(a) + '%']; }
+  if (!r) return ['neu', '–'];
+  if (ind === 'rain') { const a = r.rain_anom; return [!isNum(a) ? 'neu' : a < -20 ? 'bad' : a < -10 ? 'warn' : a > 25 ? 'neu' : 'good', sgn(a) + '%']; }
   if (ind === 'veg') return [vciClass(r.vci)[1], fx(r.vci)];
-  return [level(r.risk.composite)[1], String(r.risk.composite)];
+  return [level(r.risk && r.risk.composite)[1], fx(r.risk && r.risk.composite)];
 }
 function alerts() {
-  const out = [];
-  D.meta.regions.forEach(r => {
-    if (r.risk.drought >= 60) out.push({ k: r.key, mod: 'risk', sev: r.risk.drought, c: level(r.risk.drought)[1], t: `Drought risk ${level(r.risk.drought)[0].toLowerCase()} in ${r.name}`, d: `SPI-3 ${sgn(r.spi3, 1)}, rainfall ${sgn(r.rain_anom)}% vs normal` });
-    if (r.risk.flood >= 55) out.push({ k: r.key, mod: 'water', sev: r.risk.flood, c: level(r.risk.flood)[1], t: `Flood exposure ${level(r.risk.flood)[0].toLowerCase()} in ${r.name}`, d: `Rainfall ${sgn(r.rain_anom)}% vs normal` });
-    if (isNum(r.vci) && r.vci < 30) out.push({ k: r.key, mod: 'crop', sev: 80 - r.vci, c: 'warn', t: `Vegetation stress in ${r.name}`, d: `VCI ${fx(r.vci)}, below normal greenness` });
-    if (r.rain_anom < -18) out.push({ k: r.key, mod: 'climate', sev: -r.rain_anom + 30, c: 'warn', t: `Rainfall deficit in ${r.name}`, d: `${sgn(r.rain_anom)}% vs the 1991–2020 normal` });
+  const lv = state.level === 'district' && D.sum.district ? 'district' : 'region', out = [], y = String(state.year);
+  (D.sum[lv] || { units: [] }).units.forEach(u => { const r = u.years[y]; if (!r) return;
+    const where = lv === 'district' ? `${u.name} (${(summary(u.region) || {}).name})` : u.name;
+    if (r.risk.drought >= 60) out.push({ u, lv, mod: 'risk', sev: r.risk.drought, c: level(r.risk.drought)[1], t: `Drought risk ${level(r.risk.drought)[0].toLowerCase()} in ${where}`, d: `SPI-3 ${sgn(r.spi3, 1)}, rainfall ${sgn(r.rain_anom)}% vs normal` });
+    if (r.risk.flood >= 55) out.push({ u, lv, mod: 'climate', sev: r.risk.flood, c: level(r.risk.flood)[1], t: `Flood exposure ${level(r.risk.flood)[0].toLowerCase()} in ${where}`, d: `Rainfall ${sgn(r.rain_anom)}% vs normal` });
+    if (isNum(r.vci) && r.vci < 20) out.push({ u, lv, mod: 'crop', sev: 80 - r.vci, c: 'warn', t: `Vegetation stress in ${where}`, d: `Condition ${fx(r.vci)} of 100, browner than usual` });
+    if (r.rain_anom < -18) out.push({ u, lv, mod: 'climate', sev: -r.rain_anom + 30, c: 'warn', t: `Rainfall deficit in ${where}`, d: `${sgn(r.rain_anom)}% vs the 1991–2020 normal` });
   });
   return out.sort((a, b) => b.sev - a.sev).slice(0, 6);
 }
 function overview() {
-  const r = summary(state.region), al = alerts(), [cl, cc] = level(r.risk.composite);
+  const lv = curLevel(), u = sumUnit(lv, curKey()) || sumUnit('region', state.region), r = u && u.years[String(state.year)];
+  const rs = summary(state.region), al = alerts(), [cl] = level(r && r.risk.composite);
+  const name = lv === 'district' ? `${esc(u.name)}` : `${esc(rs.name)} Region`;
+  const sub = lv === 'district' ? `District in ${esc(rs.name)} Region. ${esc(rs.zone)}.` : `${esc(rs.zone)}, around ${esc(rs.capital)}.`;
   const legend = state.ind === 'rain' ? [['good', 'Normal'], ['warn', 'Dry'], ['bad', 'Very dry'], ['neu', 'Very wet']] : state.ind === 'veg' ? [['good', 'Above normal'], ['mod', 'Near normal'], ['warn', 'Below'], ['bad', 'Poor']] : [['good', 'Low'], ['mod', 'Moderate'], ['warn', 'High'], ['bad', 'Very high']];
-  return `<div class="hello"><span class="lbl">${D.meta.year} season · rainfall to ${fmtDate(D.meta.rain_latest)}</span><h1><em>Akwaaba.</em> Here is Ghana at a glance.</h1><p>Tap a region on the map to see how its season is going.</p></div>
+  const yearLbl = isCurrentYear() ? `${state.year} season · rainfall to ${fmtDate(D.meta.rain_latest)}` : `${state.year} season`;
+  return `<div class="hello"><span class="lbl">${yearLbl}</span><h1><em>Akwaaba.</em> Here is Ghana at a glance.</h1><p>Tap a ${state.level === 'district' ? 'district' : 'region'} on the map to see how its season went. Change the season at the top.</p></div>
   <div class="ovgrid">
     <section class="panel">
-      <div class="seg" role="group" aria-label="Map indicator">${[['risk', 'Risk'], ['rain', 'Rainfall'], ['veg', 'Vegetation']].map(([k, l]) => `<button type="button" data-ind="${k}" aria-pressed="${state.ind === k}">${l}</button>`).join('')}</div>
+      <div class="toolbar" style="justify-content:space-between">
+        <div class="seg" role="group" aria-label="Map indicator">${[['risk', 'Risk'], ['rain', 'Rainfall'], ['veg', 'Vegetation']].map(([k, l]) => `<button type="button" data-ind="${k}" aria-pressed="${state.ind === k}">${l}</button>`).join('')}</div>
+        ${D.sum.district ? `<div class="seg" role="group" aria-label="Map level">${[['region', 'Regions'], ['district', 'Districts']].map(([k, l]) => `<button type="button" data-lvl="${k}" aria-pressed="${state.level === k}">${l}</button>`).join('')}</div>` : ''}
+      </div>
       <div id="ovmap" class="lmap tall"></div>
       <div class="sw">${legend.map(([c, l]) => `<span><i style="background:${COLOR[c]}"></i>${l}</span>`).join('')}</div>
     </section>
     <div class="stack-v">
       <section class="panel">
-        ${verdict(chip(r.status + ' season', statusCls(r.status)), esc(r.name) + ' Region', `${esc(r.zone)}, around ${esc(r.capital)}. ${r.regime === 'uni' ? 'One rainy season, May to October.' : 'Two rainy seasons, roughly April to July and September to November.'}`)}
-        <div class="facts">${fact('Rainfall', sgn(r.rain_anom) + '%', 'vs normal')}${fact('Vegetation', 'VCI ' + fx(r.vci), vciClass(r.vci)[0])}${fact('Risk', r.risk.composite, cl)}</div>
+        ${r ? verdict(chip(r.status + ' season', statusCls(r.status)), name, `${sub} ${rs.regime === 'uni' ? 'One rainy season, May to October.' : 'Two rainy seasons, roughly April to July and September to November.'}`) : verdict('', name, 'No data for this season.')}
+        ${r ? `<div class="facts">${fact('Rainfall', sgn(r.rain_anom) + '%', 'vs normal')}${fact('Vegetation', fx(r.vci), vciClass(r.vci)[0])}${fact('Risk', fx(r.risk.composite), cl)}</div>` : ''}
         <div class="quick"><a class="btn primary" href="#climate">Rainfall detail</a><a class="btn" href="#crop">Crop health</a><a class="btn" href="#risk">Risk</a></div>
       </section>
       <section class="panel">
-        <div style="display:flex;justify-content:space-between;align-items:baseline;gap:10px"><h3 style="font-size:18px">Alerts</h3><span class="lbl">${al.length} active</span></div>
-        ${al.length ? `<div class="alerts">${al.map(a => `<button class="alert" type="button" data-alert="${a.k}" data-mod="${a.mod}"><span class="bar" style="background:var(--${a.c === 'neu' ? 'water' : a.c})"></span><div><b>${esc(a.t)}</b><span>${esc(a.d)}</span></div><span class="go">View →</span></button>`).join('')}</div>` : `<div class="empty">No active alerts.</div>`}
+        <div style="display:flex;justify-content:space-between;align-items:baseline;gap:10px"><h3 style="font-size:18px">Alerts · ${state.year}</h3><span class="lbl">${al.length} shown</span></div>
+        ${al.length ? `<div class="alerts">${al.map((a, i) => `<button class="alert" type="button" data-alert="${i}"><span class="bar" style="background:var(--${a.c === 'neu' ? 'water' : a.c})"></span><div><b>${esc(a.t)}</b><span>${esc(a.d)}</span></div><span class="go">View →</span></button>`).join('')}</div>` : `<div class="empty">No alerts for ${state.year}.</div>`}
       </section>
     </div>
   </div>
   <p class="disclaimer">${D.meta.sample ? 'Sample data generated offline. ' : `Updated ${esc(D.meta.generated.slice(0, 10))}. `}<a href="#methods">How these numbers are made</a>.</p>`;
 }
+function selectUnit(lv, u) {
+  if (lv === 'district') { state.region = u.region; state.district = u.key; } else { state.region = u.key; state.district = null; }
+  save(); syncPickers();
+}
 function afterOverview() {
   $$('[data-ind]').forEach(b => b.onclick = () => { state.ind = b.dataset.ind; save(); renderView('overview'); });
-  $$('[data-alert]').forEach(b => b.onclick = () => { state.region = b.dataset.alert; save(); location.hash = b.dataset.mod; });
+  $$('[data-lvl]').forEach(b => b.onclick = () => { state.level = b.dataset.lvl; save(); renderView('overview'); });
+  const al = alerts();
+  $$('[data-alert]').forEach(b => b.onclick = () => { const a = al[Number(b.dataset.alert)]; selectUnit(a.lv, a.u); location.hash = a.mod; });
   const m = newMap('ovmap'); if (!m) return;
-  const layer = L.geoJSON(D.geo, {
-    style: f => { const r = summary(f.properties.key), [c] = indValue(r, state.ind), sel = f.properties.key === state.region;
-      return { color: sel ? '#11142E' : '#ffffff', weight: sel ? 3 : 1, fillColor: COLOR[c], fillOpacity: .62 }; },
-    onEachFeature: (f, l) => { const r = summary(f.properties.key), [, v] = indValue(r, state.ind);
-      l.bindTooltip(v, { permanent: true, direction: 'center', className: 'val' });
-      l.on('click', () => { state.region = f.properties.key; save(); $('#region').value = state.region; renderView('overview'); }); }
+  const lv = state.level === 'district' && D.dgeo ? 'district' : 'region', geo = lv === 'district' ? D.dgeo : D.geo;
+  const layer = L.geoJSON(geo, {
+    style: f => { const r = sumYear(lv, f.properties.key, state.year), [c] = indValue(r, state.ind), sel = f.properties.key === curKey();
+      return { color: sel ? '#11142E' : '#ffffff', weight: sel ? 3 : lv === 'district' ? .6 : 1, fillColor: COLOR[c], fillOpacity: .66 }; },
+    onEachFeature: (f, l) => { const r = sumYear(lv, f.properties.key, state.year), [, v] = indValue(r, state.ind);
+      if (lv === 'region') l.bindTooltip(v, { permanent: true, direction: 'center', className: 'val' });
+      else l.bindTooltip(`${esc(f.properties.name)}: ${v}`, { sticky: true });
+      l.on('click', () => { selectUnit(lv, sumUnit(lv, f.properties.key) || { key: f.properties.key, region: f.properties.region }); renderView('overview'); }); }
   }).addTo(m);
+  L.geoJSON(D.geo, { style: { color: '#11142E', weight: lv === 'district' ? 1.6 : 1.2, fill: false }, interactive: false }).addTo(m);
   m.fitBounds(layer.getBounds(), { padding: [6, 6] });
 }
 
@@ -253,7 +295,7 @@ VIEWS.crop.health = R => { const n = R.ndvi, v = vciClass(n.vci), lm = n.latest_
   return P(`<div class="split"><div class="stack-v"><div id="m1" class="lmap"></div>
     <div class="legend"><div class="bar" style="background:linear-gradient(90deg,#8c6842,#b8985f,#d6c470,#a0be58,#5c9c46,#267034,#124a28)"></div><div class="ends"><span>Bare soil</span><span>Sparse</span><span>Dense vegetation</span></div></div>${mapMissing()}
     <p class="note">MODIS NDVI, 250 m${D.meta.maps ? ', composite of ' + fmtDate(D.meta.maps.ndvi_date) : ''}.</p></div>
-    <div class="stack-v">${verdict(chip(v[0], v[1]), `Vegetation is ${v[0].toLowerCase()}`, lm ? `Average greenness in ${esc(R.name)} for ${MONTH[lm - 1]} ${n.year} is ${fx(Math.abs(pct))}% ${pct >= 0 ? 'above' : 'below'} the 2001–2020 average for that month.` : 'No recent vegetation data.')}
+    <div class="stack-v">${verdict(chip(v[0], v[1]), `Vegetation is ${v[0].toLowerCase()}`, n.vci_basis === 'season' ? `Average condition across the ${R.year} growing season, compared with the same months in other years.` : lm ? `Average greenness in ${esc(R.name)} for ${MONTH[lm - 1]} ${n.year} is ${fx(Math.abs(pct))}% ${pct >= 0 ? 'above' : 'below'} the 2001–2020 average for that month.` : 'No recent vegetation data.')}
     <div class="facts">${fact('NDVI', fx(cur, 2), 'normal ' + fx(nor, 2))}${fact('Condition (VCI)', fx(n.vci), '0 worst, 100 best')}</div>
     <p class="note">NDVI measures how green and leafy the land is. The condition score compares this month with the same month in every year since 2001: 50 is typical, above 50 greener than usual, below 50 browner.</p></div></div>`); };
 AFTER.crop.health = () => regionMap('m1', 'ndvi');
@@ -279,7 +321,7 @@ VIEWS.crop.season = R => { const s = R.season, od = s.onset && isNum(s.onset_nor
     <div class="facts">${fact('Rainfall', sgn(R.rain.anomaly_pct) + '%', fx(R.rain.total) + ' mm so far')}${fact('Drought index', sgn(R.rain.spi3_latest, 1), R.rain.spi_class)}${fact('Vegetation', 'VCI ' + fx(R.ndvi.vci), vciClass(R.ndvi.vci)[0])}</div>
     <p class="note">Yield forecasts need harvest records to train on, so they are not shown yet.</p>`); };
 
-VIEWS.climate.rain = R => P(`${verdict(chip(fx(R.rain.total) + ' mm so far', 'neu'), `Rainfall is ${fx(Math.abs(R.rain.anomaly_pct))}% ${R.rain.anomaly_pct >= 0 ? 'above' : 'below'} normal`, `January to ${MONTH[R.rain.last_month - 1]} ${R.year}, against ${fx(R.rain.normal_to_date)} mm normally. ${R.regime === 'uni' ? 'One rainy season, typical of the north.' : 'Two rainy seasons, typical of the south.'}`)}
+VIEWS.climate.rain = R => P(`${verdict(chip(fx(R.rain.total) + (R.isCurrent ? ' mm so far' : ' mm'), 'neu'), `Rainfall is ${fx(Math.abs(R.rain.anomaly_pct))}% ${R.rain.anomaly_pct >= 0 ? 'above' : 'below'} normal`, `${R.isCurrent ? `January to ${MONTH[R.rain.last_month - 1]} ${R.year}` : `All of ${R.year}`}, against ${fx(R.rain.normal_to_date)} mm normally. ${R.regime === 'uni' ? 'One rainy season, typical of the north.' : 'Two rainy seasons, typical of the south.'}`)}
   <div class="split"><div>${barsCompare(R.rain.normal, R.rain.monthly)}</div>
   <div class="stack-v"><div class="key" style="display:grid;gap:8px"><span><i style="background:var(--sunk)"></i>1991–2020 normal</span><span><i style="background:var(--accent)"></i>Observed (CHIRPS v3)</span><span><i style="background:var(--warn)"></i>Under 75% of normal</span><span><i style="background:var(--water)"></i>Over 130% of normal</span></div>
   <div class="facts">${fact('Annual normal', fx(R.rain.annual_normal) + ' mm', '')}${fact('Data to', fmtDay(R.rain.latest_date), String(R.year))}</div></div></div>`);
@@ -291,17 +333,17 @@ VIEWS.climate.anom = R => { const a = R.rain.monthly_anom, nm = R.rain.normal;
     ${diverging(vals, { lim: 100, fmt: v => (v > 0 ? '+' : '') + v + '%', pos: 'b-wet', neg: 'b-dry', title: 'Monthly rainfall anomaly', faded: nm.map(n => n < 20) })}`); };
 
 VIEWS.climate.temp = R => { const t = R.temp, last = t.annual.filter(isNum).slice(-1)[0];
-  return P(`${verdict(chip(sgn(t.trend_decade, 2) + ' °C per decade', t.trend_decade > 0 ? 'warn' : 'good'), `${esc(R.name)} is ${t.trend_decade > 0 ? 'warming' : 'not warming'}`, `Annual mean temperature from ERA5-Land. The ${R.year} value (${fx(last, 1)} °C) covers the months available so far.`)}
+  return P(`${verdict(chip(sgn(t.trend_decade, 2) + ' °C per decade', t.trend_decade > 0 ? 'warn' : 'good'), `${esc(R.name)} is ${t.trend_decade > 0 ? 'warming' : 'not warming'}`, `Annual mean temperature from ERA5-Land. ${R.isCurrent ? `The ${R.year} value (${fx(last, 1)} °C) covers the months available so far.` : `${R.year} averaged ${fx(R.temp.annual[R.temp.years.indexOf(R.year)], 1)} °C.`}`)}
     ${lineChart([{ vals: t.annual, cls: 'l-temp', dot: true }, { vals: (() => { const ok = t.years.map((y, i) => [y, t.annual[i]]).filter(p => isNum(p[1])); const n = ok.length, mx = ok.reduce((a, p) => a + p[0], 0) / n, my = ok.reduce((a, p) => a + p[1], 0) / n; const b = ok.reduce((a, p) => a + (p[0] - mx) * (p[1] - my), 0) / ok.reduce((a, p) => a + (p[0] - mx) ** 2, 0); return t.years.map(y => my + b * (y - mx)); })(), cls: 'l-trend', dash: true }], t.years.map(y => "'" + String(y).slice(2)), { fmt: v => fx(v, 1) + '°', pad: true, every: 5, title: 'Annual mean temperature' })}
     <div class="key"><span><i class="line" style="background:var(--gold)"></i>Annual mean</span><span><i class="line" style="background:var(--red)"></i>Linear trend since ${t.years[0]}</span></div>`); };
 
-VIEWS.climate.drought = R => P(`${verdict(chip('SPI ' + sgn(R.rain.spi3_latest, 1), spiCls(R.rain.spi3_latest)), R.rain.spi_class, 'The Standardised Precipitation Index compares the last three months of rain with 1991–2020, using a gamma distribution fitted for each calendar month. The shaded band is near normal; below −1.5 is severe drought.')}
+VIEWS.climate.drought = R => P(`${verdict(chip('SPI ' + sgn(R.rain.spi3_latest, 1), spiCls(R.rain.spi3_latest)), R.rain.spi_class, `The Standardised Precipitation Index compares three-month rainfall with 1991–2020, using a gamma distribution fitted for each calendar month. ${R.isCurrent ? 'The headline is the latest month.' : `The headline is ${MONTH[R.rain.spi_ref_month - 1]}, the end of the main season.`} The shaded band is near normal; below −1.5 is severe drought. Blank months are too dry for SPI to be meaningful.`)}
   ${diverging(R.rain.spi3, { lim: 3, fmt: v => (v > 0 ? '+' : '') + v, pos: 'b-wet', neg: 'b-dry', bands: [[-1, 1]], title: 'SPI-3 by month' })}`);
 
 VIEWS.climate.ind = R => { const s = R.season, od = s.onset && isNum(s.onset_normal_doy) ? doyOf(s.onset) - s.onset_normal_doy : null, cd = s.cessation && isNum(s.cessation_normal_doy) ? doyOf(s.cessation) - s.cessation_normal_doy : null;
   const row = (a, b, c, d) => `<tr><td>${a}</td><td class="n">${b}</td><td class="n">${c}</td><td class="n">${d}</td></tr>`;
   const dd = v => v == null ? '–' : v === 0 ? 'On time' : v > 0 ? v + ' d late' : -v + ' d early';
-  return P(`${verdict(chip(s.onset ? 'Season under way' : 'Onset not detected', s.onset ? 'good' : 'warn'), od == null ? (s.onset ? 'Rains have started' : 'Waiting for the rains') : od === 0 ? 'Rains started on time' : `Rains started ${Math.abs(od)} days ${od > 0 ? 'late' : 'early'}`, `Detected from daily CHIRPS rainfall to ${fmtDate(s.last_date)}. Normals are the 1998–2020 averages.`)}
+  return P(`${verdict(chip(!R.isCurrent ? 'Season complete' : s.onset ? 'Season under way' : 'Onset not detected', !R.isCurrent || s.onset ? 'good' : 'warn'), od == null ? (s.onset ? 'Rains have started' : 'Waiting for the rains') : od === 0 ? 'Rains started on time' : `Rains started ${Math.abs(od)} days ${od > 0 ? 'late' : 'early'}`, `Detected from daily CHIRPS rainfall to ${fmtDate(s.last_date)}. Normals are the 1998–2020 averages.`)}
   <div class="tbl-wrap"><table><thead><tr><th>Indicator</th><th class="n">${R.year}</th><th class="n">Normal</th><th class="n">Change</th></tr></thead><tbody>
   ${row('Onset of rains', fmtDay(s.onset), doyStr(s.onset_normal_doy), dd(od))}
   ${row('End of rains', s.cessation ? fmtDay(s.cessation) : 'Not yet', doyStr(s.cessation_normal_doy), dd(cd))}
@@ -309,18 +351,20 @@ VIEWS.climate.ind = R => { const s = R.season, od = s.onset && isNum(s.onset_nor
   ${row('Rainy days (≥1 mm)', fx(s.rainy_days), fx(s.rainy_days_normal), '–')}
   ${row('Dry spells, 7+ days', fx(s.dry_spells), fx(s.dry_spells_normal, 1), '–')}
   </tbody></table></div>
-  <p class="note">Onset: first 3-day spell with at least 20 mm, not followed by a week-long dry spell within 30 days. Rainy days so far this year are compared with a full normal year.</p>`); };
+  <p class="note">Onset: first 3-day spell with at least 20 mm, not followed by a week-long dry spell within 30 days. ${R.isCurrent ? 'Rainy days so far this year are compared with a full normal year.' : ''}</p>`); };
 
 VIEWS.water.surface = R => { const w = R.water;
+  if (!R.isCurrent) return P(`${verdict(chip('Latest month only', 'neu'), 'Surface water is tracked for the latest month', `Radar water mapping runs on the most recent month (${MONTH[Number(w.month.slice(5)) - 1]} ${w.month.slice(0, 4)}). Switch the season to ${D.meta.year} to see it.`)}`);
   return P(`<div class="split"><div class="stack-v"><div id="m2" class="lmap"></div><div class="sw"><span><i style="background:#1f6fb5"></i>Water detected by Sentinel-1 radar</span></div>${mapMissing()}</div>
-  <div class="stack-v">${verdict(chip(isNum(w.pct) ? fx(w.pct) + '% of normal' : 'No baseline', !isNum(w.pct) ? 'neu' : w.pct < 75 ? 'warn' : w.pct > 125 ? 'neu' : 'good'), `${fx(w.current_km2, 0)} km² of surface water`, `Open water detected in ${esc(R.name)} during ${MONTH[Number(w.month.slice(5)) - 1]} ${w.month.slice(0, 4)}, compared with the same month in 2017–2021. Radar sees through cloud, so this works in the rainy season.`)}
+  <div class="stack-v">${verdict(chip(isNum(w.pct) ? fx(w.pct) + '% of normal' : 'No baseline', !isNum(w.pct) ? 'neu' : w.pct < 75 ? 'warn' : w.pct > 125 ? 'neu' : 'good'), `${fx(w.current_km2, 0)} km² of surface water`, `Open water detected in ${esc(R.name)}${R.level === 'district' ? ' district' : ''} during ${MONTH[Number(w.month.slice(5)) - 1]} ${w.month.slice(0, 4)}, compared with the same month in 2017–2021. Radar sees through cloud, so this works in the rainy season.`)}
   <div class="facts">${fact('This month', fx(w.current_km2, 0) + ' km²', '')}${fact('Usual', fx(w.normal_km2, 0) + ' km²', '2017–2021')}${fact('Permanent', fx(w.permanent_km2, 0) + ' km²', 'JRC, ≥75% of the time')}</div></div></div>`); };
 AFTER.water.surface = () => regionMap('m2', 'water');
 
 VIEWS.water.stress = R => { const b = R.balance, ai = b.aridity, aic = !isNum(ai) ? '–' : ai < .5 ? 'Semi-arid' : ai < .65 ? 'Dry sub-humid' : ai < 1 ? 'Moist sub-humid' : 'Humid';
   return P(`${verdict(chip(b.deficit_months + ' deficit months', b.deficit_months >= 7 ? 'warn' : 'good'), `${b.deficit_months} months where crops need more water than falls`, 'Bars show rainfall minus potential evapotranspiration (MODIS), the water crops and soil would lose. Below zero is a deficit. Faded bars use the normal for months not yet observed.')}
     ${diverging(b.balance, { fmt: v => (v > 0 ? '+' : '') + Math.round(v), pos: 'b-wet', neg: 'b-dry', title: 'Monthly water balance in mm', faded: b.projected })}
-    <div class="facts">${fact('Aridity index', fx(ai, 2), aic)}${fact('Rain this year', fx(R.rain.total) + ' mm', 'to ' + MON[R.rain.last_month - 1])}</div>`); };
+    <div class="facts">${fact('Aridity index', fx(ai, 2), aic)}${fact('Rain in ' + R.year, fx(R.rain.total) + ' mm', R.isCurrent ? 'to ' + MON[R.rain.last_month - 1] : 'full year')}</div>
+    ${b.pet_basis === 'normal' ? '<p class="note">Evapotranspiration uses the 2001–2020 average for past seasons.</p>' : ''}`); };
 
 VIEWS.risk.summary = R => { const r = R.risk, [cl, cc] = level(r.composite);
   const items = [['Drought exposure', r.drought, `SPI-3 ${sgn(R.rain.spi3_latest, 1)}, rainfall ${sgn(R.rain.anomaly_pct)}% vs normal, ${fx(R.season.dry_spells)} dry spells.`],
@@ -363,7 +407,7 @@ VIEWS.farms.trace = () => P(`${verdict('', 'Trace a farm on satellite imagery', 
   <p class="note">Only record farms with the farmer's permission. Saved farms stay on this device.</p>`);
 AFTER.farms.trace = () => {
   const m = newMap('dig', 'sat'); if (!m) return;
-  const f = regionFeature(state.region); m.fitBounds(L.geoJSON(f).getBounds());
+  const f = (state.district && districtFeature(state.district)) || regionFeature(state.region); m.fitBounds(L.geoJSON(f).getBounds());
   m.scrollWheelZoom.enable();
   const layer = L.layerGroup().addTo(m);
   const draw = () => {
@@ -447,7 +491,7 @@ function methodsView() {
       <li><strong>Evapotranspiration:</strong> MODIS MOD16A2 potential evapotranspiration, 500 m.</li>
       <li><strong>Water:</strong> Sentinel-1 radar (VV backscatter below −16 dB) within the JRC Global Surface Water maximum extent; JRC occurrence for permanent water.</li>
       <li><strong>Forest:</strong> Hansen Global Forest Change v1.13 (tree cover 2000, loss year to 2025).</li>
-      <li><strong>Boundaries:</strong> geoBoundaries ADM1 for Ghana's 16 regions (CC BY 4.0).</li>
+      <li><strong>Boundaries:</strong> geoBoundaries for Ghana's 16 regions and 260 districts (2019 set, CC BY 4.0).</li>
     </ul>
     <h3>Methods</h3>
     <ul>
@@ -456,6 +500,7 @@ function methodsView() {
       <li><strong>Onset</strong> is the first 3-day spell with at least 20 mm after 1 April (north) or 1 March (south), not followed by 7 dry days within 30 days. <strong>Cessation</strong> is the first wet day after 1 September (north) or 15 October (south) followed by less than 10 mm in 20 days.</li>
       <li><strong>Vegetation condition (VCI)</strong> is a standardised form of Kogan's (1995) index: how far this month's regional NDVI is from the same month in other years since 2001, scaled to 0–100 where 50 is typical. Changes smaller than the satellite's noise (0.04 NDVI) cannot reach the extremes. Only complete months are used.</li>
       <li><strong>Crop suitability</strong> scores growing-season rainfall (annual crops) or annual rainfall (perennials), mean temperature and rainy-season length against simplified FAO ECOCROP ranges. Soil is not yet included.</li>
+      <li><strong>Past seasons</strong> (2001 onward) use full-year rainfall, SPI-3 at the end of the main season, and vegetation condition averaged over the growing season. Surface water and map images cover the latest month only.</li>
       <li><strong>Risk indices</strong> are transparent heuristics (0–100) combining SPI, rainfall anomaly, dry spells, surface water, NDVI trend and VCI. They are indicators for discussion, not validated predictions.</li>
     </ul>
     <h3>Limitations</h3>
@@ -469,6 +514,14 @@ function methodsView() {
 }
 
 /* ---------------- boot ---------------- */
+function syncPickers() {
+  $('#region').value = state.region;
+  const ds = D.sum.district ? D.sum.district.units.filter(u => u.region === state.region).sort((a, b) => a.name.localeCompare(b.name)) : [];
+  const dsel = $('#district'); dsel.hidden = !ds.length;
+  dsel.innerHTML = `<option value="">All districts</option>` + ds.map(u => `<option value="${u.key}">${esc(u.name)}</option>`).join('');
+  dsel.value = state.district || '';
+  $('#year').value = String(state.year);
+}
 async function boot() {
   try {
     [D.meta, D.geo] = await Promise.all([getJSON('data/meta.json'), getJSON('data/regions.geojson')]);
@@ -477,10 +530,20 @@ async function boot() {
     document.body.innerHTML = `<p class="loading">Could not load data (${esc(e.message)}). Run the pipeline or <code>python pipelines/make_sample_data.py</code> first.</p>`; return;
   }
   if (D.meta.sample) { const b = $('#banner'); b.hidden = false; b.textContent = 'Sample data: the Earth Engine pipeline has not run yet, so figures are simulated.'; }
+  if (D.meta.districts) {
+    [D.dgeo, D.sum.district] = await Promise.all([getJSON('data/districts.geojson').catch(() => null), getJSON('data/summary_district.json').catch(() => null)]);
+  }
+  D.sum.region = await getJSON('data/summary_region.json').catch(() => ({ units: D.meta.regions.map(r => ({ key: r.key, name: r.name, region: r.key, years: { [D.meta.year]: r } })) }));
   if (!summary(state.region)) state.region = 'northern';
+  if (state.district && !(D.sum.district && sumUnit('district', state.district))) state.district = null;
+  const first = D.meta.first_year || D.meta.year;
+  if (!state.year || state.year > D.meta.year || state.year < first) state.year = D.meta.year;
   $('#region').innerHTML = D.meta.regions.map(r => `<option value="${r.key}">${esc(r.name)}</option>`).join('');
-  $('#region').value = state.region;
-  $('#region').onchange = e => { state.region = e.target.value; save(); route(); };
+  $('#year').innerHTML = Array.from({ length: D.meta.year - first + 1 }, (_, i) => D.meta.year - i).map(y => `<option value="${y}">${y}</option>`).join('');
+  $('#region').onchange = e => { state.region = e.target.value; state.district = null; save(); syncPickers(); route(); };
+  $('#district').onchange = e => { state.district = e.target.value || null; save(); route(); };
+  $('#year').onchange = e => { state.year = Number(e.target.value); save(); route(); };
+  syncPickers();
   $('#asof').textContent = `Rain to ${fmtDay(D.meta.rain_latest)} ${D.meta.rain_latest.slice(0, 4)}`;
   buildLanding();
   window.addEventListener('hashchange', route);

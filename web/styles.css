@@ -124,7 +124,7 @@ button,select,input{font:inherit;color:inherit}
 .pick{appearance:none;border:1px solid var(--line);background:var(--bg);border-radius:999px;padding:7px 30px 7px 12px;font-size:14px;font-weight:600;min-width:0;max-width:100%;cursor:pointer;
   background-image:linear-gradient(45deg,transparent 50%,var(--muted) 50%),linear-gradient(135deg,var(--muted) 50%,transparent 50%);background-position:calc(100% - 15px) 55%,calc(100% - 10px) 55%;background-size:5px 5px;background-repeat:no-repeat}
 .asof{font:500 12px var(--f-mono);color:var(--muted);white-space:nowrap}
-@media (max-width:560px){.asof{display:none}}
+@media (max-width:640px){.topbar .inner{flex-wrap:wrap;row-gap:8px}.pickers{flex:1 1 100%;order:3}.pickers .pick{flex:1 1 0;min-width:0;font-size:13px;padding-left:10px}.asof{display:none}}
 .content{padding-block:22px}
 .mhead{display:grid;gap:12px;margin-bottom:18px}
 .crumb{font:600 12px var(--f-mono);letter-spacing:.1em;text-transform:uppercase;color:var(--muted)}

@@ -1,12 +1,15 @@
 """Run the AgroIntel Africa pipeline: Earth Engine → JSON + PNG files for the website.
 
 Usage:
-    python pipelines/run_pipeline.py              # normal weekly run
-    python pipelines/run_pipeline.py --no-maps    # skip map images (faster)
-    python pipelines/run_pipeline.py --rebuild    # ignore cached history
+    python pipelines/run_pipeline.py                  # normal weekly run (regions + districts)
+    python pipelines/run_pipeline.py --no-maps        # skip map images (faster)
+    python pipelines/run_pipeline.py --no-districts   # regions only
+    python pipelines/run_pipeline.py --rebuild        # ignore cached history
 
 Historical series are cached in data/cache/ so routine runs only fetch the
-current and previous year.
+current and previous year. Every unit (region or district) gets one JSON file
+holding its static context (normals, trends, suitability) and an indicator
+block for every season from FIRST_YEAR to the current one.
 """
 from __future__ import annotations
 
@@ -25,13 +28,16 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from agrointel import analysis as A  # noqa: E402
 from agrointel import earth as E  # noqa: E402
-from agrointel.config import (CACHE_DIR, FARMS_GEOJSON, NDVI_BASE_START, NORMAL_END, NORMAL_START,  # noqa: E402
-                              REGIONS, REGIONS_GEOJSON, SEASON_BASE, TEMP_TREND_START, WEB_DATA)
+from agrointel.config import (CACHE_DIR, DISTRICTS_GEOJSON, FARMS_GEOJSON, FIRST_YEAR,  # noqa: E402
+                              NDVI_BASE_START, NORMAL_END, NORMAL_START, REGIONS, REGIONS_GEOJSON,
+                              SEASON_BASE, TEMP_TREND_START, WEB_DATA)
 
 log = logging.getLogger("agrointel")
+GROWING = {"uni": range(5, 11), "bi": range(3, 12)}   # months used for a past season's vegetation score
+SEASON_END = {"uni": 10, "bi": 11}                     # month whose SPI-3 summarises a past season
 
 
-# ---------------------------------------------------------------- cache helpers
+# ---------------------------------------------------------------- helpers
 def load(name: str) -> dict:
     p = CACHE_DIR / name
     return json.loads(p.read_text()) if p.exists() else {}
@@ -66,9 +72,21 @@ def r(v, d=1):
     return None if v is None or (isinstance(v, float) and math.isnan(v)) else round(float(v), d)
 
 
-# ---------------------------------------------------------------- stages
+def nn(x):
+    return None if x is None or (isinstance(x, float) and math.isnan(x)) else x
+
+
+def as_tuple_series(d: dict) -> dict[tuple[int, int], float]:
+    return {(int(k[:4]), int(k[5:7])): v for k, v in d.items()}
+
+
+def doy(s):
+    return dt.date.fromisoformat(s).timetuple().tm_yday if s else None
+
+
+# ---------------------------------------------------------------- fetching stages
 def update_monthly(fc, keys, cache_name, fetch, first_year, year, last_month, rebuild):
-    """Fill a {region: {"YYYY-MM": value}} cache, always refreshing the last two years."""
+    """Fill a {unit: {"YYYY-MM": value}} cache, always refreshing the last two years."""
     cache = {} if rebuild else load(cache_name)
     have = {ym[:4] for k in cache.values() for ym in k}
     for y in range(first_year, year + 1):
@@ -92,41 +110,174 @@ def update_monthly(fc, keys, cache_name, fetch, first_year, year, last_month, re
     return cache
 
 
-def as_tuple_series(d: dict) -> dict[tuple[int, int], float]:
-    return {(int(k[:4]), int(k[5:7])): v for k, v in d.items()}
-
-
-def update_season_history(fc, keys, rebuild):
-    cache = {} if rebuild else load("season_history_sat.json")
-    for y in range(SEASON_BASE[0], SEASON_BASE[1] + 1):
+def update_season_history(fc, keys, regimes, cache_name, last_year, rebuild):
+    """Season indicators for every complete year from SEASON_BASE[0] to last_year."""
+    cache = {} if rebuild else load(cache_name)
+    for y in range(SEASON_BASE[0], last_year + 1):
         if all(str(y) in cache.get(k, {}) for k in keys):
             continue
         dates, daily = soft(f"season history {y}", E.chirps_daily_year, fc, y, default=([], {}))
-        log.info("season history %s: %d days", y, len(dates))
+        log.info("%s %s: %d days", cache_name, y, len(dates))
         if not dates:
             continue
         for k in keys:
-            ind = A.season_indicators(dates, daily[k], REGIONS[k]["regime"])
-            ind["total"] = round(sum(daily[k]), 1)
-            cache.setdefault(k, {})[str(y)] = ind
-        save("season_history_sat.json", cache)
+            if k in daily:
+                ind = A.season_indicators(dates, daily[k], regimes[k])
+                ind["total"] = round(sum(daily[k]), 1)
+                cache.setdefault(k, {})[str(y)] = ind
+        save(cache_name, cache)
     return cache
+
+
+def fetch_level(level, geo, keys, regimes, year, last_month, latest, nyear, nmonth, wy, wm, rebuild):
+    """Everything Earth Engine has to say about one set of units."""
+    sfx = "" if level == "region" else "_districts"
+    fc = E.feature_collection(geo)
+    out = {}
+    out["rain"] = update_monthly(fc, keys, f"chirps_monthly{sfx}.json", E.chirps_monthly_year, NORMAL_START,
+                                 year, last_month, rebuild)
+    out["seasons"] = update_season_history(fc, keys, regimes, f"season_history_sat{sfx}.json", year - 1, rebuild)
+    dates, daily = soft(f"{level} daily rainfall", E.chirps_daily_year, fc, year, latest, default=([], {}))
+    log.info("%s daily rainfall %s: %d days", level, year, len(dates))
+    out["current_season"] = {k: A.season_indicators(dates, daily.get(k, []), regimes[k]) for k in keys}
+    out["ndvi"] = update_monthly(fc, keys, f"ndvi_monthly_qa{sfx}.json", E.ndvi_monthly_year, NDVI_BASE_START,
+                                 nyear, nmonth, rebuild)
+    log.info("%s temperature", level)
+    out["temps"] = soft(f"{level} temperature", E.era5_annual_temps, fc, TEMP_TREND_START, year, default={})
+    pet_norm = {} if rebuild else load(f"pet_normal{sfx}.json")
+    if not pet_norm:
+        pet_norm = soft(f"{level} PET normal", E.pet_monthly, fc, None, default={})
+        if pet_norm:
+            save(f"pet_normal{sfx}.json", pet_norm)
+    out["pet_norm"] = pet_norm
+    out["pet_now"] = soft(f"{level} PET {year}", E.pet_monthly, fc, year, default={})
+    log.info("%s water %s-%02d", level, wy, wm)
+    out["water"] = soft(f"{level} water", E.water_areas, fc, wy, wm, default={})
+    return out
+
+
+# ---------------------------------------------------------------- assembly
+def build_unit(k, data, regime, forest, year, last_month, latest, wy, wm):
+    """Static context plus one indicator block per season for a single unit."""
+    ser = as_tuple_series(data["rain"].get(k, {}))
+    normal = A.monthly_normals(ser)
+    spi_all = A.spi(ser, 3)
+
+    hist = data["seasons"].get(k, {})
+    base = {y: h for y, h in hist.items() if SEASON_BASE[0] <= int(y) <= SEASON_BASE[1]}
+    onset_n = A.mean_doy([h.get("onset") for h in base.values()])
+    cess_n = A.mean_doy([h.get("cessation") for h in base.values()])
+    rd_n = round(sum(h["rainy_days"] for h in base.values()) / len(base)) if base else None
+    ds_n = round(sum(h["dry_spells"] or 0 for h in base.values()) / len(base), 1) if base else None
+    los_n = (cess_n - onset_n) if onset_n and cess_n else None
+
+    trow = data["temps"].get(k, {})
+    tyears = list(range(TEMP_TREND_START, year + 1))
+    tvals = [trow.get(f"y{y}") for y in tyears]
+    slope, _ = A.linear_trend(tyears, [v if v is not None else float("nan") for v in tvals])
+    known = [v for v in tvals if v is not None]
+    tnorm = trow.get("normal") or (sum(known) / len(known) if known else float("nan"))
+
+    nser = as_tuple_series(data["ndvi"].get(k, {}))
+    nnorm = [nn(x) for x in A.monthly_normals(nser, NDVI_BASE_START, NORMAL_END)]
+    ann = {}
+    for (y, m), v in nser.items():
+        ann.setdefault(y, []).append(v)
+    ay = sorted(y for y, v in ann.items() if len(v) == 12)
+    nslope, _ = A.linear_trend(ay, [sum(ann[y]) / 12 for y in ay])
+    ntrend = 0.0 if math.isnan(nslope) else nslope * 10
+
+    pn, pc = data["pet_norm"].get(k, {}), data["pet_now"].get(k, {})
+    pet_norm = [pn.get(f"m{m:02d}") for m in range(1, 13)]
+    pet_cur = [pc.get(f"m{m:02d}") if pc.get(f"m{m:02d}") is not None else pn.get(f"m{m:02d}") for m in range(1, 13)]
+
+    w = data["water"].get(k, {})
+    wb = [w.get(f"b{y}") for y in range(2017, 2022) if w.get(f"b{y}") is not None]
+    wnorm = sum(wb) / len(wb) if wb else None
+    wpct = (w.get("current") or 0) / wnorm * 100 if wnorm and wnorm > 0.5 else None
+
+    suit = A.crop_suitability(sum(normal), tnorm, los_n, forest, A.season_rain(normal, regime))
+
+    years = {}
+    for y in range(FIRST_YEAR, year + 1):
+        cur = y == year
+        lm = last_month if cur else 12
+        monthly = [ser.get((y, m)) for m in range(1, lm + 1)]
+        if not any(v is not None for v in monthly):
+            continue
+        tot, ntot = sum(v or 0 for v in monthly), sum(normal[:lm])
+        anom = (tot / ntot - 1) * 100 if ntot else 0.0
+        month_anom = [r((v / n - 1) * 100, 0) if v is not None and n >= 1 else None for v, n in zip(monthly, normal)]
+        spi_year = [spi_all.get((y, m)) for m in range(1, 13)]
+        ref = lm if cur else SEASON_END[regime]
+        spi_ref = spi_year[ref - 1]
+        recent = [v for v in spi_year[max(0, ref - 3):ref] if v is not None]
+
+        s = data["current_season"].get(k, {}) if cur else hist.get(str(y), {})
+        los = (doy(s.get("cessation")) - doy(s.get("onset"))) if s.get("onset") and s.get("cessation") else None
+
+        ncur = [nser.get((y, m)) for m in range(1, 13)]
+        avail = [m for m in range(1, 13) if ncur[m - 1] is not None]
+        if cur or (avail and max(avail) < 12):
+            nlm = max(avail) if avail else None
+            vci = A.vci(nser, y, nlm) if nlm else None
+            vci_basis = f"latest:{nlm}" if nlm else None
+        else:
+            vals = [A.vci(nser, y, m) for m in GROWING[regime] if (y, m) in nser]
+            vci = round(sum(vals) / len(vals), 1) if vals else None
+            nlm, vci_basis = (12 if avail else None), "season"
+
+        p_used = [monthly[m - 1] if m <= lm else normal[m - 1] for m in range(1, 13)]
+        pet = pet_cur if cur else pet_norm
+        balance = [r((p or 0) - (e or 0), 0) if e is not None else None for p, e in zip(p_used, pet)]
+        petsum = sum(e for e in pet if e is not None)
+        aridity = sum(v or 0 for v in p_used) / petsum if petsum else None
+
+        risk = A.risk_scores(spi3_latest=spi_ref, season_anom_pct=anom, dry_spells=s.get("dry_spells"),
+                             spi3_recent_max=max(recent) if recent else None, water_pct=wpct if cur else None,
+                             ndvi_trend_decade=ntrend, vci_latest=vci)
+        status = A.season_status(anom, vci, spi_ref, (s.get("dry_spells") or 0) - (ds_n or 0))
+        years[str(y)] = {
+            "rain": {"last_month": lm, "monthly": [r(v) for v in monthly], "total": r(tot, 0),
+                     "normal_to_date": r(ntot, 0), "anomaly_pct": r(anom, 1), "monthly_anom": month_anom,
+                     "spi3": [r(v, 2) for v in spi_year], "spi3_ref": r(spi_ref, 2), "spi_ref_month": ref,
+                     "spi_class": A.spi_class(spi_ref)},
+            "season": {"onset": s.get("onset"), "cessation": s.get("cessation"), "dry_spells": s.get("dry_spells"),
+                       "rainy_days": s.get("rainy_days"), "los": los, "last_date": s.get("last_date")},
+            "ndvi": {"monthly": [r(v, 3) for v in ncur], "latest_month": nlm, "vci": vci, "vci_basis": vci_basis},
+            "temp": r(trow.get(f"y{y}"), 2),
+            "balance": {"p": [r(v, 0) for v in p_used], "pet": [r(v, 0) for v in pet], "balance": balance,
+                        "projected": [m > lm for m in range(1, 13)], "aridity": r(aridity, 2),
+                        "pet_basis": "observed" if cur else "normal",
+                        "deficit_months": sum(1 for b in balance if b is not None and b < -40)},
+            "risk": risk, "status": status,
+        }
+
+    static = {
+        "current_year": year, "latest_date": latest.isoformat(),
+        "rain_normal": [r(v) for v in normal], "annual_normal": r(sum(normal), 0),
+        "season_normal": {"onset_doy": onset_n, "cessation_doy": cess_n, "los": los_n,
+                          "rainy_days": rd_n, "dry_spells": ds_n},
+        "temp": {"years": tyears, "annual": [r(v, 2) for v in tvals], "trend_decade": r(slope * 10, 2),
+                 "normal": r(tnorm, 2)},
+        "ndvi_normal": [r(v, 3) for v in nnorm], "ndvi_trend_decade": r(ntrend, 3),
+        "water": {"month": f"{wy}-{wm:02d}", "current_km2": r(w.get("current"), 1), "normal_km2": r(wnorm, 1),
+                  "pct": r(wpct, 0), "permanent_km2": r(w.get("permanent"), 1)},
+        "suitability": suit,
+    }
+    return static, years
 
 
 # ---------------------------------------------------------------- main
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--no-maps", action="store_true")
+    ap.add_argument("--no-districts", action="store_true")
     ap.add_argument("--rebuild", action="store_true")
     args = ap.parse_args()
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 
     E.init()
-    geo = json.loads(REGIONS_GEOJSON.read_text())
-    keys = [f["properties"]["key"] for f in geo["features"]]
-    names = {f["properties"]["key"]: f["properties"]["name"] for f in geo["features"]}
-    fc = E.feature_collection(geo)
-
     latest = E.chirps_latest_date()
     year = latest.year
     last_day = calendar.monthrange(year, latest.month)[1]
@@ -135,154 +286,69 @@ def main() -> None:
         year, last_month = year - 1, 12
     log.info("CHIRPS data to %s → reporting %s, months 1-%s", latest, year, last_month)
 
-    # Rainfall history and current year
-    rain = update_monthly(fc, keys, "chirps_monthly.json", E.chirps_monthly_year, NORMAL_START, year, last_month, args.rebuild)
-    seasons_hist = update_season_history(fc, keys, args.rebuild)
-    dates, daily = soft("daily rainfall", E.chirps_daily_year, fc, year, latest, default=([], {}))
-    log.info("daily rainfall %s: %d days", year, len(dates))
-
-    # Vegetation history
-    # Only complete months: a month's last MODIS 16-day composite ends mid-way through the next
-    # month, so month m counts once we are past the 16th of month m+1.
-    t0 = dt.date.today()
-    back = 1 if t0.day >= 16 else 2
-    ny_, nm_ = t0.year, t0.month - back
-    if nm_ < 1:
-        ny_, nm_ = ny_ - 1, nm_ + 12
-    ndvi = update_monthly(fc, keys, "ndvi_monthly_qa.json", E.ndvi_monthly_year, NDVI_BASE_START, ny_, nm_, args.rebuild)
-
-    # Temperature, evapotranspiration, water
-    log.info("temperature")
-    temps = soft("temperature", E.era5_annual_temps, fc, TEMP_TREND_START, year, default={})
-    pet_norm = load("pet_normal.json")
-    if not pet_norm or args.rebuild:
-        log.info("PET normal")
-        pet_norm = soft("PET normal", E.pet_monthly, fc, None, default={})
-        if pet_norm:
-            save("pet_normal.json", pet_norm)
-    log.info("PET %s", year)
-    pet_now = soft("PET", E.pet_monthly, fc, year, default={})
-
+    # Only complete MODIS months: month m counts once we are past the 16th of month m+1.
     today = dt.date.today()
+    back = 1 if today.day >= 16 else 2
+    nyear, nmonth = today.year, today.month - back
+    if nmonth < 1:
+        nyear, nmonth = nyear - 1, nmonth + 12
     wy, wm = (today.year, today.month - 1) if today.month > 1 else (today.year - 1, 12)
-    log.info("water %s-%02d", wy, wm)
-    water = soft("water", E.water_areas, fc, wy, wm, default={})
 
-    # Maps
+    regions_geo = json.loads(REGIONS_GEOJSON.read_text())
+    levels = [("region", regions_geo)]
+    if not args.no_districts and DISTRICTS_GEOJSON.exists():
+        levels.append(("district", json.loads(DISTRICTS_GEOJSON.read_text())))
+
+    summaries = {}
+    for level, geo in levels:
+        feats = geo["features"]
+        keys = [f["properties"]["key"] for f in feats]
+        parent = {f["properties"]["key"]: (f["properties"]["key"] if level == "region" else f["properties"]["region"])
+                  for f in feats}
+        regimes = {k: REGIONS[parent[k]]["regime"] for k in keys}
+        log.info("=== %s level: %d units", level, len(keys))
+        data = fetch_level(level, geo, keys, regimes, year, last_month, latest, nyear, nmonth, wy, wm, args.rebuild)
+
+        out_dir = WEB_DATA / f"{level}s"
+        out_dir.mkdir(parents=True, exist_ok=True)
+        units = []
+        for f in feats:
+            k, name = f["properties"]["key"], f["properties"]["name"]
+            meta = REGIONS[parent[k]]
+            static, years = build_unit(k, data, meta["regime"], meta["forest"], year, last_month, latest, wy, wm)
+            unit = {"key": k, "name": name, "level": level, "region": parent[k], "updated": today.isoformat(),
+                    "capital": meta["capital"] if level == "region" else None, "zone": meta["zone"],
+                    "regime": meta["regime"], "forest": meta["forest"], **static, "years": years}
+            (out_dir / f"{k}.json").write_text(json.dumps(unit, separators=(",", ":")))
+            units.append({"key": k, "name": name, "region": parent[k], "years": {
+                y: {"rain_anom": b["rain"]["anomaly_pct"], "vci": b["ndvi"]["vci"], "spi3": b["rain"]["spi3_ref"],
+                    "risk": {x: b["risk"][x] for x in ("composite", "drought", "flood")}, "status": b["status"]}
+                for y, b in years.items()}})
+            if level == "region":
+                cy = years.get(str(year), {})
+                log.info("%s: rain %s%%, VCI %s, risk %s", k, cy.get("rain", {}).get("anomaly_pct"),
+                         cy.get("ndvi", {}).get("vci"), cy.get("risk", {}).get("composite"))
+        summaries[level] = units
+        (WEB_DATA / f"summary_{level}.json").write_text(json.dumps({"units": units}, separators=(",", ":")))
+        log.info("%s level done: %d units", level, len(units))
+
+    # Maps (regions only)
     maps_meta = None
     if not args.no_maps:
         log.info("map images")
-        maps_meta = soft("map images", E.region_maps, geo, WEB_DATA / "maps", wy, wm, default=None)
+        maps_meta = soft("map images", E.region_maps, regions_geo, WEB_DATA / "maps", wy, wm, default=None)
         if maps_meta:
             (WEB_DATA / "maps.json").write_text(json.dumps(maps_meta))
     elif (WEB_DATA / "maps.json").exists():
         maps_meta = json.loads((WEB_DATA / "maps.json").read_text())
 
-    # ------------------------------------------------------------ assemble per region
-    out_dir = WEB_DATA / "regions"
-    out_dir.mkdir(parents=True, exist_ok=True)
-    summary = []
-    for k in keys:
-        meta = REGIONS[k]
-        ser = as_tuple_series(rain.get(k, {}))
-        normal = A.monthly_normals(ser)
-        monthly = [ser.get((year, m)) for m in range(1, last_month + 1)]
-        tot, ntot = sum(v or 0 for v in monthly), sum(normal[:last_month])
-        anom = (tot / ntot - 1) * 100 if ntot else 0.0
-        month_anom = [r((v / n - 1) * 100 if n else None, 0) if v is not None and n >= 1 else None
-                      for v, n in zip(monthly, normal)]
-        spi_all = A.spi(ser, 3)
-        spi_year = [spi_all.get((year, m)) for m in range(1, 13)]
-        spi_latest = spi_year[last_month - 1]
-
-        # season indicators
-        cur = A.season_indicators(dates, daily.get(k, []), meta["regime"])
-        hist = seasons_hist.get(k, {})
-        onset_n = A.mean_doy([h.get("onset") for h in hist.values()])
-        cess_n = A.mean_doy([h.get("cessation") for h in hist.values()])
-        rd_n = round(sum(h["rainy_days"] for h in hist.values()) / len(hist)) if hist else None
-        ds_n = round(sum(h["dry_spells"] or 0 for h in hist.values()) / len(hist), 1) if hist else None
-        doy = lambda s: dt.date.fromisoformat(s).timetuple().tm_yday if s else None  # noqa: E731
-        los = (doy(cur["cessation"]) - doy(cur["onset"])) if cur["onset"] and cur["cessation"] else None
-        los_n = (cess_n - onset_n) if onset_n and cess_n else None
-
-        # temperature
-        trow = temps.get(k, {})
-        tyears = list(range(TEMP_TREND_START, year + 1))
-        tvals = [trow.get(f"y{y}") for y in tyears]
-        slope, _ = A.linear_trend(tyears, [v if v is not None else float("nan") for v in tvals])
-
-        # vegetation
-        nser = as_tuple_series(ndvi.get(k, {}))
-        nnorm = [None if math.isnan(x) else x for x in A.monthly_normals(nser, NDVI_BASE_START, NORMAL_END)]
-        ny = max((y for (y, m) in nser), default=year)
-        ncur = [nser.get((ny, m)) for m in range(1, 13)]
-        nlm = max((m for m in range(1, 13) if ncur[m - 1] is not None), default=None)
-        vci = A.vci(nser, ny, nlm) if nlm else None
-        ann = {}
-        for (y, m), v in nser.items():
-            if y < ny:
-                ann.setdefault(y, []).append(v)
-        ay = sorted(y for y, v in ann.items() if len(v) == 12)
-        nslope, _ = A.linear_trend(ay, [sum(ann[y]) / 12 for y in ay])
-
-        # water balance
-        pn, pc = pet_norm.get(k, {}), pet_now.get(k, {})
-        pet = [pc.get(f"m{m:02d}") if pc.get(f"m{m:02d}") is not None else pn.get(f"m{m:02d}") for m in range(1, 13)]
-        p_used = [monthly[m - 1] if m <= last_month else normal[m - 1] for m in range(1, 13)]
-        balance = [r((p or 0) - (e or 0), 0) for p, e in zip(p_used, pet)]
-        aridity = sum(p_used) / sum(e or 0 for e in pet) if any(pet) else None
-
-        w = water.get(k, {})
-        base = [w.get(f"b{y}") for y in range(2017, 2022) if w.get(f"b{y}") is not None]
-        wnorm = sum(base) / len(base) if base else None
-        wpct = (w.get("current") or 0) / wnorm * 100 if wnorm and wnorm > 0.5 else None
-
-        # suitability and risk
-        tnorm = trow.get("normal") or (sum(v for v in tvals if v) / max(1, len([v for v in tvals if v])))
-        suit = A.crop_suitability(sum(normal), tnorm, los_n, meta["forest"], A.season_rain(normal, meta["regime"]))
-        recent = [v for v in spi_year[max(0, last_month - 3):last_month] if v is not None]
-        risk = A.risk_scores(spi3_latest=spi_latest, season_anom_pct=anom, dry_spells=cur["dry_spells"],
-                             spi3_recent_max=max(recent) if recent else None, water_pct=wpct,
-                             ndvi_trend_decade=(nslope * 10 if not math.isnan(nslope) else 0.0), vci_latest=vci)
-        status = A.season_status(anom, vci, spi_latest, (cur["dry_spells"] or 0) - (ds_n or 0))
-
-        region = {
-            "key": k, "name": names[k], **meta, "year": year, "updated": today.isoformat(),
-            "rain": {"last_month": last_month, "latest_date": latest.isoformat(),
-                     "monthly": [r(v) for v in monthly], "normal": [r(v) for v in normal],
-                     "total": r(tot, 0), "normal_to_date": r(ntot, 0), "anomaly_pct": r(anom, 1),
-                     "monthly_anom": month_anom, "spi3": [r(v, 2) for v in spi_year],
-                     "spi3_latest": r(spi_latest, 2), "spi_class": A.spi_class(spi_latest),
-                     "annual_normal": r(sum(normal), 0)},
-            "season": {**cur, "onset_normal_doy": onset_n, "cessation_normal_doy": cess_n, "los": los, "los_normal": los_n,
-                       "rainy_days_normal": rd_n, "dry_spells_normal": ds_n},
-            "temp": {"years": tyears, "annual": [r(v, 2) for v in tvals], "trend_decade": r(slope * 10, 2),
-                     "normal": r(tnorm, 2)},
-            "ndvi": {"year": ny, "monthly": [r(v, 3) for v in ncur], "normal": [r(v, 3) for v in nnorm],
-                     "latest_month": nlm, "vci": vci, "trend_decade": r(nslope * 10, 3) if not math.isnan(nslope) else None},
-            "water": {"month": f"{wy}-{wm:02d}", "current_km2": r(w.get("current"), 1), "normal_km2": r(wnorm, 1),
-                      "pct": r(wpct, 0), "permanent_km2": r(w.get("permanent"), 1)},
-            "balance": {"p": [r(v, 0) for v in p_used], "pet": [r(v, 0) for v in pet], "balance": balance,
-                        "projected": [m > last_month for m in range(1, 13)], "aridity": r(aridity, 2),
-                        "deficit_months": sum(1 for b in balance if b is not None and b < -40)},
-            "suitability": suit, "risk": risk, "status": status,
-        }
-        (out_dir / f"{k}.json").write_text(json.dumps(region, separators=(",", ":")))
-        summary.append({"key": k, "name": names[k], "capital": meta["capital"], "zone": meta["zone"],
-                        "regime": meta["regime"], "rain_anom": region["rain"]["anomaly_pct"], "vci": vci,
-                        "spi3": region["rain"]["spi3_latest"], "risk": risk, "status": status,
-                        "top_crop": suit[0]["name"]})
-        log.info("%s: rain %+.0f%%, VCI %s, risk %s", k, anom, vci, risk["composite"])
-
-    # ------------------------------------------------------------ farms
+    # Farms
     farms_out = None
     if FARMS_GEOJSON.exists():
         farms = json.loads(FARMS_GEOJSON.read_text())
         if farms.get("features"):
             log.info("farms: %d", len(farms["features"]))
-            fy, fm = (today.year, today.month - 1) if today.month > 1 else (today.year - 1, 12)
-            fs = soft("farms", E.farm_stats, farms, fy, fm, default={})
+            fs = soft("farms", E.farm_stats, farms, wy, wm, default={})
             for f in farms["features"]:
                 s = fs.get(f["properties"]["id"], {})
                 f["properties"]["ndvi"] = [r(s.get(f"m{m:02d}"), 3) for m in range(1, 13)]
@@ -293,12 +359,22 @@ def main() -> None:
             (WEB_DATA / "farms.json").write_text(json.dumps(farms, separators=(",", ":")))
 
     shutil.copy(REGIONS_GEOJSON, WEB_DATA / "regions.geojson")
+    if "district" in summaries:
+        shutil.copy(DISTRICTS_GEOJSON, WEB_DATA / "districts.geojson")
+    regions_now = []
+    for u in summaries["region"]:
+        b = u["years"].get(str(year), {})
+        meta = REGIONS[u["key"]]
+        regions_now.append({"key": u["key"], "name": u["name"], "capital": meta["capital"], "zone": meta["zone"],
+                            "regime": meta["regime"], "rain_anom": b.get("rain_anom"), "vci": b.get("vci"),
+                            "spi3": b.get("spi3"), "risk": b.get("risk", {}), "status": b.get("status")})
     (WEB_DATA / "meta.json").write_text(json.dumps({
         "sample": False, "generated": dt.datetime.now(dt.timezone.utc).isoformat(timespec="minutes"),
         "year": year, "last_month": last_month, "rain_latest": latest.isoformat(),
-        "maps": maps_meta, "farms": bool(farms_out), "regions": summary,
+        "first_year": FIRST_YEAR, "districts": "district" in summaries,
+        "maps": maps_meta, "farms": bool(farms_out), "regions": regions_now,
     }, separators=(",", ":")))
-    log.info("done: %d regions written", len(summary))
+    log.info("done")
 
 
 if __name__ == "__main__":

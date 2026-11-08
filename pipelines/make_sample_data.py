@@ -43,10 +43,16 @@ def _year_factor(k, y):
     return 1 + (_rng(k, y, "yf").random() - 0.5) * 0.44
 
 
-def _monthly(k, y, m):
-    shape = UNI if REGIONS[k]["regime"] == "uni" else BI
-    base = ANNUAL[k] * shape[m - 1] / sum(shape)
-    return max(0.0, base * (_year_factor(k, y) + (_rng(k, y, m).random() - 0.5) * 0.6))
+def _units(fc):
+    """(unit key, region key) for every feature of a region or district collection."""
+    return [(f["properties"]["key"], f["properties"].get("region", f["properties"]["key"])) for f in fc["features"]]
+
+
+def _monthly(k, y, m, reg=None):
+    reg = reg or k
+    shape = UNI if REGIONS[reg]["regime"] == "uni" else BI
+    base = ANNUAL[reg] * shape[m - 1] / sum(shape) * (0.9 + 0.2 * _rng(k, "scale").random())
+    return max(0.0, base * (_year_factor(reg, y) + (_rng(k, y, m).random() - 0.5) * 0.6))
 
 
 class FakeEarth(SimpleNamespace):
@@ -64,44 +70,43 @@ class FakeEarth(SimpleNamespace):
         return dt.date(self.today.year, self.today.month, 1) - dt.timedelta(days=39)
 
     def chirps_monthly_year(self, fc, y, lm=12):
-        return {k: {f"m{m:02d}": _monthly(k, y, m) for m in range(1, lm + 1)} for k in self.keys}
+        return {k: {f"m{m:02d}": _monthly(k, y, m, g) for m in range(1, lm + 1)} for k, g in _units(fc)}
 
     def chirps_daily_year(self, fc, y, until=None):
         last = until or dt.date(y, 12, 31)
         dates = [dt.date(y, 1, 1) + dt.timedelta(days=i) for i in range((last - dt.date(y, 1, 1)).days + 1)]
+        months = np.array([d.month for d in dates])
+        dim = np.array([calendar.monthrange(y, m)[1] for m in range(1, 13)])
         out = {}
-        for k in self.keys:
-            rain = []
-            for d in dates:
-                mm = _monthly(k, y, d.month)
-                days = calendar.monthrange(y, d.month)[1]
-                g = _rng(k, d.isoformat()).random()
-                p_wet = min(0.85, mm / days / 6 + 0.02)
-                rain.append(float(mm / days / p_wet * (0.4 + g)) if g < p_wet else 0.0)
-            out[k] = rain
+        for k, g in _units(fc):
+            mm = np.array([_monthly(k, y, m, g) for m in range(1, 13)])
+            daily_mean = (mm / dim)[months - 1]
+            p_wet = np.minimum(0.85, daily_mean / 6 + 0.02)
+            u = _rng(k, y, "daily").random((2, len(dates)))
+            out[k] = np.where(u[0] < p_wet, daily_mean / p_wet * (0.4 + u[1]), 0.0).round(2).tolist()
         return dates, out
 
     def ndvi_monthly_year(self, fc, y):
         res = {}
-        for k in self.keys:
-            base = NDVI.get(k, 0.68)
-            amp = 0.6 if REGIONS[k]["regime"] == "uni" else 0.3
-            shape = UNI if REGIONS[k]["regime"] == "uni" else BI
+        for k, g in _units(fc):
+            base = NDVI.get(g, 0.68) * (0.95 + 0.1 * _rng(k, "nd").random())
+            amp = 0.6 if REGIONS[g]["regime"] == "uni" else 0.3
+            shape = UNI if REGIONS[g]["regime"] == "uni" else BI
             row = {}
             for m in range(1, 13):
                 if dt.date(y, m, 1) >= dt.date(self.today.year, self.today.month, 1):
                     continue
                 lag = 0.6 * shape[(m - 2) % 12] + 0.4 * shape[m - 1]
                 v = base * (1 - amp + amp * lag / max(shape)) + 0.06
-                v *= 1 + (_year_factor(k, y) - 1) * 0.4 + 0.002 * (y - 2001) * (-1 if k in ("upper-east", "western") else 1)
+                v *= 1 + (_year_factor(g, y) - 1) * 0.4 + 0.002 * (y - 2001) * (-1 if g in ("upper-east", "western") else 1)
                 row[f"m{m:02d}"] = round(v + (_rng(k, y, m, "n").random() - 0.5) * 0.03, 4)
             res[k] = row
         return res
 
     def era5_annual_temps(self, fc, first, last):
         res = {}
-        for k in self.keys:
-            t0 = TEMP.get(k, 26.4)
+        for k, g in _units(fc):
+            t0 = TEMP.get(g, 26.4)
             row = {f"y{y}": t0 - 0.45 + 0.031 * (y - 1996) + (_rng(k, y, "t").random() - 0.5) * 0.5 for y in range(first, last + 1)}
             row["normal"] = t0
             res[k] = row
@@ -110,15 +115,15 @@ class FakeEarth(SimpleNamespace):
     def pet_monthly(self, fc, y):
         uni = [175, 185, 195, 180, 160, 135, 118, 108, 112, 130, 152, 168]
         bi = [128, 138, 148, 140, 128, 108, 98, 96, 104, 118, 124, 124]
-        return {k: {f"m{m:02d}": (uni if REGIONS[k]["regime"] == "uni" else bi)[m - 1] for m in range(1, 13)}
-                for k in self.keys}
+        return {k: {f"m{m:02d}": (uni if REGIONS[g]["regime"] == "uni" else bi)[m - 1] for m in range(1, 13)}
+                for k, g in _units(fc)}
 
     def water_areas(self, fc, y, m):
         out = {}
-        for k in self.keys:
+        for k, g in _units(fc):
             base = 40 + 400 * _rng(k, "w").random()
             row = {f"b{yy}": base * (0.9 + 0.2 * _rng(k, yy).random()) for yy in range(2017, 2022)}
-            row["current"] = base * _year_factor(k, y)
+            row["current"] = base * _year_factor(g, y)
             row["permanent"] = base * 0.7
             out[k] = row
         return out
@@ -131,8 +136,9 @@ class FakeEarth(SimpleNamespace):
         for f in farms["features"]:
             fid = f["properties"]["id"]
             k = f["properties"]["region"]
-            row = self.ndvi_monthly_year(None, y)[k]
-            norm = self.ndvi_monthly_year(None, 2022)[k]
+            one = {"features": [{"properties": {"key": k}}]}
+            row = self.ndvi_monthly_year(one, y)[k]
+            norm = self.ndvi_monthly_year(one, 2022)[k]
             s = {}
             for m in range(1, 13):
                 if f"m{m:02d}" in row and m <= lm:

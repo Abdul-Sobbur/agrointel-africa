@@ -6,6 +6,7 @@ DATA_DIR = ROOT / "data"
 CACHE_DIR = DATA_DIR / "cache"
 WEB_DATA = ROOT / "web" / "data"
 REGIONS_GEOJSON = DATA_DIR / "regions.geojson"
+DISTRICTS_GEOJSON = DATA_DIR / "districts.geojson"
 FARMS_GEOJSON = DATA_DIR / "farms.geojson"
 
 # Climate normal period (WMO standard) and other baselines
@@ -13,6 +14,7 @@ NORMAL_START, NORMAL_END = 1991, 2020
 SEASON_BASE = (1998, 2020)     # daily-rainfall baseline (CHIRPS v3 SAT starts in 1998)
 NDVI_BASE_START = 2001          # MODIS Terra full years start in 2001
 TEMP_TREND_START = 1996
+FIRST_YEAR = 2001               # earliest season the website lets you browse (MODIS NDVI starts 2000)
 WATER_BASE_YEARS = (2017, 2021)  # Sentinel-1 years used as the water baseline
 
 # Earth Engine dataset IDs

@@ -1,7 +1,7 @@
 # AgroIntel Africa
 
 **Agricultural intelligence for Ghana from open satellite and climate data.**
-Rainfall, drought, crop health, surface water, risk and farm monitoring for all 16 regions, updated weekly with Google Earth Engine.
+Rainfall, drought, crop health, surface water, risk and farm monitoring for Ghana's 16 regions and 260 districts, every season since 2001, updated weekly with Google Earth Engine.
 
 **Live site:** https://abdul-sobbur.github.io/agrointel-africa/
 
@@ -37,6 +37,7 @@ web/ — static site: index.html, app.js, styles.css (Leaflet maps)
 
 ```
 data/regions.geojson        Ghana's 16 regions (geoBoundaries ADM1)
+data/districts.geojson      260 districts (geoBoundaries ADM2, 2019), each tagged with its region
 data/farms.geojson          farms monitored with Sentinel-2 (add yours here)
 data/cache/                 cached historical series (written by the pipeline)
 pipelines/agrointel/        config, Earth Engine access, analysis

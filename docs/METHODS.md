@@ -12,7 +12,7 @@
 | Evapotranspiration | MODIS PET (`MODIS/061/MOD16A2`) | 500 m, 8-day | Water balance, aridity |
 | Water | Sentinel-1 GRD (`COPERNICUS/S1_GRD`), JRC GSW 1.4 | 10–30 m | Monthly water area, permanent water |
 | Forest | Hansen GFC v1.13 (`UMD/hansen/global_forest_change_2025_v1_13`) | 30 m | Tree cover 2000, loss 2021–2025 |
-| Boundaries | geoBoundaries ADM1, Ghana | – | 16 regions |
+| Boundaries | geoBoundaries ADM1 and ADM2, Ghana (2019) | – | 16 regions, 260 districts |
 
 ## Methods
 
@@ -25,9 +25,15 @@
 * **Crop suitability:** trapezoid scores for rainfall (growing-season rainfall for annual crops, annual rainfall for perennials), mean temperature and rainy-season length against simplified FAO ECOCROP ranges; FAO classes S1 (≥ 80), S2 (≥ 60), S3 (≥ 40), N.
 * **Risk indices (0–100):** transparent heuristics in `pipelines/agrointel/analysis.py::risk_scores`. Composite = 35% drought + 25% production + 20% flood + 20% degradation.
 
+## Districts and past seasons
+
+* Every indicator is computed for regions and for 260 districts. Districts are assigned to the region they overlap most. Map images are made per region; district views zoom into them.
+* Each region and district file holds one block per season from 2001. For past seasons rainfall covers January to December, SPI-3 is reported for the end of the main season (October in the north, November in the south), vegetation condition is the average over the growing season, and evapotranspiration uses the 2001–2020 average. Surface water is computed for the latest month only.
+
 ## Limitations
 
-* Regional averages hide variation within regions.
+* Regional and district averages hide variation within them; the smallest urban districts are smaller than one rainfall pixel (~5.5 km).
+* District boundaries are the 2019 set (260 districts); Ghana has created further districts since.
 * No field validation yet; treat outputs as indicators, not facts.
 * Radar can mistake smooth surfaces for water; the JRC mask reduces this.
 * Suitability ignores soil and terrain for now (iSDAsoil is the planned addition).
