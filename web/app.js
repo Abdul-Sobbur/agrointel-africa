@@ -143,7 +143,8 @@ const ICON = {
   climate: '<path d="M7 15a4 4 0 1 1 .6-8A5 5 0 0 1 17 8a3.5 3.5 0 0 1 0 7z M8 18.5l-1 2 M12 18.5l-1 2 M16 18.5l-1 2"/>',
   water: '<path d="M12 3s6 6.5 6 11a6 6 0 0 1-12 0c0-4.5 6-11 6-11z"/>',
   risk: '<path d="M12 4l9 16H3z M12 10v4.5 M12 17.2v.3"/>',
-  farms: '<path d="M4 8l7-4 9 5-2 11-12-2z"/>'
+  farms: '<path d="M4 8l7-4 9 5-2 11-12-2z"/>',
+  report: '<path d="M7 3h7l4 4v14H7z M14 3v4h4 M10 12h5 M10 16h5"/>'
 };
 const MODS = {
   overview: { n: 'Overview' },
@@ -248,7 +249,7 @@ function buildLanding() {
   $('#demoChips').innerHTML = picks.map(k => `<button type="button" class="chip-b" data-k="${k}" aria-pressed="false">${esc(summary(k).name)}</button>`).join('');
   $$('#demoChips .chip-b').forEach(b => b.onclick = () => buildDemo(b.dataset.k));
   buildDemo(picks[0] || D.meta.regions[0].key);
-  $('#modTiles').innerHTML = Object.entries(MODS).filter(([k]) => k !== 'overview').map(([k, m]) => `<a class="modc" href="#${k}"><span class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${ICON[k]}</svg></span><h3>${m.full}</h3><ul>${m.items.map(i => `<li>${i}</li>`).join('')}</ul><span class="go">Open ${m.n.toLowerCase()} →</span></a>`).join('');
+  $('#modTiles').innerHTML = Object.entries(MODS).filter(([k]) => k !== 'overview').map(([k, m]) => `<a class="modc" href="#${k}"><span class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${ICON[k]}</svg></span><h3>${m.full}</h3><ul>${m.items.map(i => `<li>${i}</li>`).join('')}</ul><span class="go">Open ${m.n.toLowerCase()} →</span></a>`).join('') + `<a class="modc" href="#report"><span class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${ICON.report}</svg></span><h3>Reports</h3><ul><li>National, regional or district</li><li>Choose the sections</li><li>Add your name, organisation, logo and notes</li><li>Print or save as PDF</li></ul><span class="go">Create a report →</span></a>`;
   const hasTamale = D.sum.district && sumUnit('district', 'd-tamale-metropolitan');
   $('#trio').innerHTML = `<a class="card dark" href="#climate" id="replay"><span class="tag">SEASON REPLAY</span><h3>Go back to any season since ${D.meta.first_year || 2001}</h3>
       <div class="years" aria-hidden="true"><span>2011</span><span>2013</span><span class="sel">2015</span><span>2019</span><span>2024</span><span>${D.meta.year}</span></div>
@@ -259,12 +260,13 @@ function buildLanding() {
 }
 
 function renderNav(mod) {
-  $('#nav').innerHTML = Object.entries(MODS).map(([k, m]) => `<a class="nv" href="#${k}"${mod === k ? ' aria-current="page"' : ''}><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${ICON[k]}</svg>${m.n}</a>`).join('');
+  $('#nav').innerHTML = [...Object.entries(MODS), ['report', { n: 'Report' }]].map(([k, m]) => `<a class="nv" href="#${k}"${mod === k ? ' aria-current="page"' : ''}><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${ICON[k]}</svg>${m.n}</a>`).join('');
 }
 
 async function route() {
   const h = location.hash.slice(1);
-  const inApp = !!MODS[h] || h === 'methods';
+  const inApp = !!MODS[h] || h === 'methods' || h === 'report';
+  document.body.classList.toggle('reporting', h === 'report');
   $('#home').hidden = inApp; $('#app').hidden = !inApp;
   clearMaps();
   if (!inApp) { window.scrollTo(0, 0); return; }
@@ -278,6 +280,7 @@ async function renderView(mod) {
   clearMaps();
   const view = $('#view');
   if (mod === 'methods') { view.innerHTML = methodsView(); return; }
+  if (mod === 'report') { await reportView(); return; }
   if (mod === 'overview') { view.innerHTML = overview(); afterOverview(); return; }
   view.innerHTML = '<p class="loading">Loading…</p>';
   let U;
@@ -636,6 +639,174 @@ function methodsView() {
 }
 
 /* ---------------- boot ---------------- */
+/* ---------------- report builder ---------------- */
+const RSECT = [['rain', 'Rainfall and drought'], ['season', 'Rainy season timing'], ['veg', 'Vegetation condition'], ['soil', 'Soil and land'],
+  ['crops', 'Crop suitability'], ['water', 'Water'], ['risk', 'Agricultural risk'], ['table', 'Area breakdown table']];
+const RDEF = { scope: 'unit', sections: RSECT.map(s => s[0]), title: '', ref: '', forOrg: '', byName: '', byRole: '', byOrg: '', byContact: '', notes: '', logo: '', remember: true };
+let REP = Object.assign({}, RDEF, store.get('agrointel.report', {}));
+const andJoin = xs => xs.length > 1 ? xs.slice(0, -1).join(', ') + ' and ' + xs[xs.length - 1] : (xs[0] || '');
+const pctTxt = v => !isNum(v) ? 'no data' : Math.abs(v) < 5 ? `close to normal (${sgn(v)}%)` : `${fx(Math.abs(v))}% ${v > 0 ? 'above' : 'below'} normal`;
+
+function polyArea(g) { // planar area in degrees², enough for weights
+  const rings = g.type === 'MultiPolygon' ? g.coordinates.map(p => p[0]) : [g.coordinates[0]];
+  return rings.reduce((a, r) => a + Math.abs(r.reduce((s, p, i) => { const q = r[(i + 1) % r.length]; return s + p[0] * q[1] - q[0] * p[1]; }, 0)) / 2, 0);
+}
+function mapSVG(features, fill, focusKey, label) {
+  const pts = features.flatMap(f => (f.geometry.type === 'MultiPolygon' ? f.geometry.coordinates.flat() : f.geometry.coordinates).flat());
+  const xs = pts.map(p => p[0]), ys = pts.map(p => p[1]), x0 = Math.min(...xs), x1 = Math.max(...xs), y0 = Math.min(...ys), y1 = Math.max(...ys);
+  const W = 300, sc = W / (x1 - x0), H = Math.round((y1 - y0) * sc);
+  const path = g => (g.type === 'MultiPolygon' ? g.coordinates.flat() : g.coordinates).map(r => 'M' + r.map(p => `${((p[0] - x0) * sc).toFixed(1)} ${((y1 - p[1]) * sc).toFixed(1)}`).join('L') + 'Z').join('');
+  return `<svg class="rmap" viewBox="-2 -2 ${W + 4} ${H + 4}" role="img" aria-label="${esc(label)}">${features.map(f => `<path d="${path(f.geometry)}" fill="${fill(f)}" stroke="#fff" stroke-width=".8"/>`).join('')}${focusKey ? features.filter(f => f.properties.key === focusKey).map(f => `<path d="${path(f.geometry)}" fill="none" stroke="#10201A" stroke-width="2.2"/>`).join('') : ''}</svg>`;
+}
+const RISK_LEG = () => `<div class="rleg">${['Low', 'Moderate', 'High', 'Very high'].map((l, i) => `<span><i style="background:${RISK_FILL[i]}"></i>${l}</span>`).join('')}<span><i style="background:#D5DBD3"></i>No data</span></div>`;
+
+/* National view: area-weighted average of the 16 region files */
+async function nationalView(y) {
+  const Us = await Promise.all(D.meta.regions.map(r => unitData('region', r.key)));
+  const Vs = Us.map(U => asView(U, y)).filter(Boolean); if (!Vs.length) return null;
+  const w = Vs.map(V => polyArea(regionFeature(V.key).geometry)), W = w.reduce((a, b) => a + b, 0);
+  const avg = get => { let s = 0, ws = 0; Vs.forEach((V, i) => { const v = get(V); if (isNum(v)) { s += v * w[i]; ws += w[i]; } }); return ws ? s / ws : null; };
+  const lm = Vs[0].rain.last_month;
+  const monthly = Array.from({ length: lm }, (_, m) => avg(V => V.rain.monthly[m])), normal = Array.from({ length: 12 }, (_, m) => avg(V => V.rain.normal[m]));
+  const tot = monthly.reduce((a, b) => a + (b || 0), 0), ntot = normal.slice(0, lm).reduce((a, b) => a + b, 0);
+  return { national: true, key: 'ghana', name: 'Ghana', year: y, isCurrent: Vs[0].isCurrent, Vs,
+    rain: { monthly, normal, last_month: lm, total: tot, normal_to_date: ntot, anomaly_pct: (tot / ntot - 1) * 100, latest_date: Vs[0].rain.latest_date },
+    ndvi: { vci: avg(V => V.ndvi.vci), monthly: Array.from({ length: 12 }, (_, m) => avg(V => V.ndvi.monthly[m])), normal: Array.from({ length: 12 }, (_, m) => avg(V => V.ndvi.normal[m])) },
+    risk: Object.fromEntries(['composite', 'drought', 'flood', 'degradation', 'production'].map(k => [k, Math.round(avg(V => V.risk && V.risk[k]))])) };
+}
+
+function keyMessages(R, rows) {
+  const out = [], lm = R.rain.last_month, through = R.isCurrent ? `January to ${MONTH[lm - 1]} ${R.year}` : `${R.year}`;
+  if (R.status) out.push(`Overall the ${R.year} season ${R.isCurrent ? 'is' : 'was'} rated <b>${esc(R.status.toLowerCase())}</b>, from rainfall, drought index and vegetation condition together.`);
+  if (isNum(R.rain.anomaly_pct)) out.push(`Rainfall for ${through} was ${fx(R.rain.total)} mm, <b>${pctTxt(R.rain.anomaly_pct)}</b> against the 1991–2020 average of ${fx(R.rain.normal_to_date)} mm.`);
+  if (!R.national && isNum(R.rain.spi3_latest)) out.push(`The three-month drought index (SPI-3) at the end of ${MONTH[R.rain.spi_ref_month - 1]} was ${sgn(R.rain.spi3_latest, 1)}: <b>${esc(R.rain.spi_class.toLowerCase())}</b>.`);
+  const s = R.season;
+  if (s && s.onset && isNum(s.onset_normal_doy)) { const d = doyOf(s.onset) - s.onset_normal_doy;
+    out.push(`The rains became established on ${fmtDate(s.onset)}, <b>${Math.abs(d) <= 7 ? 'close to the usual date' : Math.abs(d) + ' days ' + (d > 0 ? 'later' : 'earlier') + ' than usual'}</b> (${doyStr(s.onset_normal_doy)}).`); }
+  else if (s && R.isCurrent && !s.onset) out.push('The main rainy season had not become established by the usual measure.');
+  if (isNum(R.ndvi.vci)) out.push(`Vegetation condition scored ${fx(R.ndvi.vci)} out of 100 (<b>${vciClass(R.ndvi.vci)[0].toLowerCase()}</b>; 50 is typical)${R.ndviBasis === 'cropland' ? ', measured on farmland only' : ''}.`);
+  if (R.risk && isNum(R.risk.composite)) { const drv = ['drought', 'flood', 'degradation', 'production'].sort((a, b) => R.risk[b] - R.risk[a])[0];
+    out.push(`Composite agricultural risk is <b>${R.risk.composite}/100 (${level(R.risk.composite)[0].toLowerCase()})</b>, driven mainly by ${drv} risk (${R.risk[drv]}).`); }
+  if (rows && rows.length) { const st = s => rows.filter(r => r.status === s).length, hi = [...rows].filter(r => isNum(r.risk)).sort((a, b) => b.risk - a.risk).slice(0, 3);
+    out.push(`Of ${rows.length} ${R.national ? 'regions' : `districts in ${esc((summary(R.level === 'district' ? R.region : R.key) || {}).name || '')} Region`}, ${st('Favourable')} ${st('Favourable') === 1 ? 'is' : 'are'} favourable, ${st('Watch')} on watch and ${st('Stressed')} stressed. Highest risk: ${andJoin(hi.map(r => `${esc(r.name)} (${r.risk})`))}.`); }
+  return out;
+}
+
+function breakdownRows(R) {
+  const y = String(R.year);
+  if (R.national) return D.meta.regions.map(r => { const b = sumYear('region', r.key, y) || {}; return { key: r.key, name: r.name, rain: b.rain_anom, vci: b.vci, spi: b.spi3, risk: b.risk && b.risk.composite, drought: b.risk && b.risk.drought, status: b.status }; });
+  const rk = R.level === 'district' ? R.region : R.key;
+  if (D.sum.district) return D.sum.district.units.filter(u => u.region === rk).map(u => { const b = u.years[y] || {}; return { key: u.key, name: u.name, rain: b.rain_anom, vci: b.vci, spi: b.spi3, risk: b.risk && b.risk.composite, drought: b.risk && b.risk.drought, status: b.status }; });
+  return null;
+}
+
+function reportDoc(R) {
+  const on = k => REP.sections.includes(k), rows = breakdownRows(R);
+  const regName = R.national ? '' : R.level === 'district' ? `${esc(R.name)}, ${esc((summary(R.region) || {}).name || '')} Region` : `${esc(R.name)} Region`;
+  const place = R.national ? 'Ghana (all 16 regions)' : regName;
+  const title = REP.title.trim() || `Agricultural season report: ${R.national ? 'Ghana' : R.level === 'district' ? R.name : R.name + ' Region'}, ${R.year}`;
+  const lm = R.rain.last_month, period = R.isCurrent ? `January to ${MONTH[lm - 1]} ${R.year} (rainfall data to ${fmtDate(D.meta.rain_latest)})` : `January to December ${R.year}`;
+  const today = fmtDate(new Date().toISOString().slice(0, 10));
+  const sec = (n, t, body) => `<section class="rsec"><h2><span>${n}</span>${t}</h2>${body}</section>`;
+  let n = 1; const parts = [];
+  parts.push(sec(n++, 'Key messages', `<ul class="rkey">${keyMessages(R, rows).map(m => `<li>${m}</li>`).join('')}</ul>`));
+  const tiles = [['Rainfall vs normal', isNum(R.rain.anomaly_pct) ? sgn(R.rain.anomaly_pct) + '%' : '–'], ['Vegetation (VCI)', fx(R.ndvi.vci)], ['Risk (0–100)', fx(R.risk && R.risk.composite)]];
+  if (!R.national) tiles.splice(1, 0, ['SPI-3', sgn(R.rain.spi3_latest, 1)]);
+  if (R.status) tiles.push(['Season status', R.status]);
+  parts[0] = parts[0].replace('</section>', `<div class="rtiles">${tiles.map(([k, v]) => `<div><small>${k}</small><b>${esc(v)}</b></div>`).join('')}</div></section>`);
+  if (on('rain')) parts.push(sec(n++, 'Rainfall and drought', `<div class="rgrid"><div>${barsCompare(R.rain.normal, R.rain.monthly)}<p class="rcap">Monthly rainfall (bars) against the 1991–2020 average (grey). Orange: under 75% of normal; blue: over 130%.</p></div>
+    ${R.national ? `<div><p>Total ${fx(R.rain.total)} mm against a normal of ${fx(R.rain.normal_to_date)} mm for the same months: ${pctTxt(R.rain.anomaly_pct)}. Figures are area-weighted averages of the 16 regions.</p></div>`
+    : `<div>${diverging(R.rain.spi3, { lim: 3, fmt: v => (v > 0 ? '+' : '') + v, pos: 'b-wet', neg: 'b-dry', bands: [[-1, 1]], title: 'SPI-3 by month' })}<p class="rcap">SPI-3 by month. Below −1 is moderately dry, below −1.5 severely dry, below −2 extremely dry.</p></div>`}</div>`));
+  if (on('season') && !R.national) { const s = R.season;
+    parts.push(sec(n++, 'Rainy season timing', `<table class="rtab"><thead><tr><th>Indicator</th><th>${R.year}</th><th>Usual (1998–2020)</th></tr></thead><tbody>
+      <tr><td>Onset of rains</td><td>${s.onset ? fmtDate(s.onset) : 'Not yet established'}</td><td>${doyStr(s.onset_normal_doy)}</td></tr>
+      <tr><td>End of rains</td><td>${s.cessation ? fmtDate(s.cessation) : R.isCurrent ? 'Not yet' : '–'}</td><td>${doyStr(s.cessation_normal_doy)}</td></tr>
+      <tr><td>Season length (days)</td><td>${fx(s.los)}</td><td>${fx(s.los_normal)}</td></tr>
+      <tr><td>Rainy days (≥ 1 mm)</td><td>${fx(s.rainy_days)}</td><td>${fx(s.rainy_days_normal)}</td></tr>
+      <tr><td>Dry spells (7+ days) in season</td><td>${fx(s.dry_spells)}</td><td>${fx(s.dry_spells_normal, 1)}</td></tr></tbody></table>`)); }
+  if (on('veg')) parts.push(sec(n++, 'Vegetation condition', `<div class="rgrid"><div>${lineChart([{ vals: R.ndvi.normal, cls: 'l-norm', dash: true }, { vals: R.ndvi.monthly, cls: 'l-act', area: true, dot: true }], MON.map(m => m[0]), { fmt: v => fx(v, 2), min: 0, max: .9, h: 180, title: 'NDVI by month' })}<p class="rcap">Monthly greenness (NDVI, MODIS 250 m), ${R.year} (green) against the 2001–2020 average (dashed).</p></div>
+    <div><p>Vegetation condition index: <b>${fx(R.ndvi.vci)}</b> out of 100 (${vciClass(R.ndvi.vci)[0].toLowerCase()}). 50 is typical for the time of year; below 25 indicates poor condition.</p>${R.national ? '' : `<p>${R.ndviBasis === 'cropland' ? `Measured on farmland only: pixels that are mostly cropland, which covers ${fx(R.land && R.land.cropland_pct, 0)}% of the land (ESA WorldCover 2021).` : 'Measured on all vegetation, as farmland is too small a share of the land here to measure separately.'}</p>`}</div></div>`));
+  if (on('soil') && !R.national && R.soil) { const S = R.soil, lc = Object.entries((R.land && R.land.pct) || {}).filter(([, v]) => v >= 1).sort((a, b) => b[1] - a[1]);
+    parts.push(sec(n++, 'Soil and land', `<div class="rgrid"><table class="rtab"><thead><tr><th>Topsoil (0–20 cm)</th><th>Value</th><th>Rating</th></tr></thead><tbody>${SOIL_ROWS.map(([k, l, f, u]) => `<tr><td>${l}</td><td>${f(S[k].value)}${u ? ' ' + u : ''}</td><td>${esc(S[k].rating || '–')}</td></tr>`).join('')}<tr><td>Texture (most common)</td><td colspan="2">${esc(S.texture.name || '–')}</td></tr></tbody></table>
+      <div><table class="rtab"><thead><tr><th>Land cover (2021)</th><th>Share</th></tr></thead><tbody>${lc.map(([k, v]) => `<tr><td>${esc(k)}</td><td>${fx(v, 0)}%</td></tr>`).join('')}</tbody></table><p class="rcap">Soil: iSDAsoil 30 m model predictions (2001–2017), averaged across the area; not a substitute for a field soil test. Land cover: ESA WorldCover 2021.</p></div></div>`)); }
+  if (on('crops') && !R.national && R.suitability) parts.push(sec(n++, 'Crop suitability', `<table class="rtab"><thead><tr><th>Crop</th><th>Class</th><th>Score</th><th>Limitations</th></tr></thead><tbody>${R.suitability.map(c => `<tr><td>${esc(c.name)}</td><td>${c.class} · ${suitName(c.class)}</td><td>${c.score}</td><td>${esc([...(isNum(c.climate) && c.climate < 80 ? ['climate'] : []), ...(c.limits || [])].join(', ') || '–')}</td></tr>`).join('')}</tbody></table><p class="rcap">FAO land-evaluation classes from the 1991–2020 climate and topsoil. Long-term suitability, not a forecast for this season.</p>`));
+  if (on('water') && !R.national && R.water && R.isCurrent) { const w = R.water;
+    parts.push(sec(n++, 'Water', `<p>Surface water detected by Sentinel-1 radar in ${MONTH[Number(w.month.slice(5)) - 1]} ${w.month.slice(0, 4)}: <b>${fx(w.current_km2, 1)} km²</b>${isNum(w.pct) ? `, ${fx(w.pct)}% of the 2017–2021 average for that month (${fx(w.normal_km2, 1)} km²)` : ''}. Permanent water: ${fx(w.permanent_km2, 1)} km².${R.balance ? ` Annual rainfall is ${fx(R.balance.aridity, 2)} times potential evaporation (aridity index), with ${R.balance.deficit_months} months in water deficit.` : ''}</p>`)); }
+  if (on('risk') && R.risk) parts.push(sec(n++, 'Agricultural risk', `<table class="rtab"><thead><tr><th>Risk</th><th>Score (0–100)</th><th>Level</th></tr></thead><tbody>${[['drought', 'Drought'], ['flood', 'Flood'], ['degradation', 'Land degradation'], ['production', 'Production'], ['composite', 'Composite']].map(([k, l]) => `<tr${k === 'composite' ? ' class="tot"' : ''}><td>${l}</td><td>${fx(R.risk[k])}</td><td>${level(R.risk[k])[0]}</td></tr>`).join('')}</tbody></table><p class="rcap">Transparent indices combining drought index, rainfall, dry spells, surface water, greening trend and vegetation condition. Indicators for discussion, not validated predictions.</p>`));
+  if (on('table') && rows) { const feats = R.national ? D.geo.features : (D.dgeo ? D.dgeo.features.filter(f => f.properties.region === (R.level === 'district' ? R.region : R.key)) : []);
+    const byKey = Object.fromEntries(rows.map(r => [r.key, r]));
+    parts.push(sec(n++, R.national ? 'Regions at a glance' : R.level === 'district' ? `Districts of ${esc((summary(R.region) || {}).name || '')} Region` : 'Districts at a glance', `<div class="rgrid map">${feats.length ? `<div>${mapSVG(feats, f => { const r = byKey[f.properties.key]; return r && isNum(r.risk) ? riskFill(r.risk) : '#D5DBD3'; }, R.level === 'district' ? R.key : null, 'Risk map')}${RISK_LEG()}<p class="rcap">Composite risk, ${R.year}.</p></div>` : ''}
+      <table class="rtab small"><thead><tr><th>${R.national ? 'Region' : 'District'}</th><th>Rain</th><th>VCI</th><th>SPI-3</th><th>Risk</th><th>Status</th></tr></thead><tbody>${[...rows].sort((a, b) => (b.risk ?? -1) - (a.risk ?? -1)).map(r => `<tr${R.level === 'district' && r.key === R.key ? ' class="tot"' : ''}><td>${esc(r.name)}</td><td>${isNum(r.rain) ? sgn(r.rain) + '%' : '–'}</td><td>${fx(r.vci)}</td><td>${sgn(r.spi, 1)}</td><td>${fx(r.risk)}</td><td>${esc(r.status || '–')}</td></tr>`).join('')}</tbody></table></div>`)); }
+  if (REP.notes.trim()) parts.push(sec(n++, 'Observations and recommendations', `<div class="rnotes">${esc(REP.notes).replace(/\n{2,}/g, '</p><p>').replace(/\n/g, '<br>').replace(/^/, '<p>').replace(/$/, '</p>')}</div>`));
+  parts.push(sec(n++, 'Data and method', `<p class="rsmall">Rainfall: CHIRPS v3 (UCSB Climate Hazards Center), normals 1991–2020. Drought: Standardised Precipitation Index (McKee et al., 1993). Vegetation: MODIS NDVI (NASA), condition index after Kogan (1995). Temperature: ERA5-Land (ECMWF). Water: Sentinel-1 (ESA Copernicus) and JRC Global Surface Water. Soil: iSDAsoil. Land cover: ESA WorldCover 2021. Boundaries: geoBoundaries. Processed with Google Earth Engine. Full methods: ${esc(location.origin + location.pathname)}#methods</p>
+    <p class="rsmall">These indicators are produced automatically from open satellite and climate data and have not been validated against field observations. Use them alongside local knowledge and official sources such as the Ghana Meteorological Agency and the Ministry of Food and Agriculture.</p>`));
+  const by = [REP.byName, REP.byRole, REP.byOrg, REP.byContact].some(v => v.trim());
+  const sign = `<section class="rsec rsign"><div><h3>Prepared by</h3>${by ? `<p><b>${esc(REP.byName)}</b>${REP.byRole ? '<br>' + esc(REP.byRole) : ''}${REP.byOrg ? '<br>' + esc(REP.byOrg) : ''}${REP.byContact ? '<br>' + esc(REP.byContact) : ''}</p>` : '<p class="blank">Name<br>Position<br>Organisation</p>'}<div class="sigline">Signature</div></div>
+    <div><h3>Prepared for</h3><p>${REP.forOrg ? esc(REP.forOrg) : '<span class="blank">–</span>'}</p><h3>Date</h3><p>${today}</p>${REP.ref ? `<h3>Reference</h3><p>${esc(REP.ref)}</p>` : ''}</div></section>`;
+  return `<article class="rdoc" id="rdoc">
+    <header class="rhead"><div class="rbrand"><img src="assets/logo-mark.svg" alt="" width="40" height="40"><div><b>AgroIntel Africa</b><span>Agricultural intelligence from open satellite data</span></div></div>${REP.logo ? `<img class="ulogo" src="${REP.logo}" alt="Organisation logo">` : ''}</header>
+    <div class="rtitle"><span class="rkick">${R.national ? 'National' : R.level === 'district' ? 'District' : 'Regional'} report${REP.ref ? ' · ' + esc(REP.ref) : ''}</span><h1>${esc(title)}</h1>
+      <p>${place}<br>Period: ${period}<br>Generated ${today}${REP.forOrg ? ' for ' + esc(REP.forOrg) : ''}</p></div>
+    ${parts.join('')}${sign}
+    <footer class="rfoot">AgroIntel Africa · ${esc(location.host + location.pathname)} · a noncommercial portfolio project${D.meta.sample ? ' · SAMPLE DATA' : ''}</footer>
+  </article>`;
+}
+
+async function reportView() {
+  const view = $('#view');
+  const lvl = curLevel(), unitName = state.district ? (sumUnit('district', state.district) || {}).name : (summary(state.region) || {}).name;
+  if (REP.scope === 'unit' && !unitName) REP.scope = 'national';
+  const f = (id, label, ph, type = 'text') => `<label class="rf"><span>${label}</span><input type="${type}" id="${id}" value="${esc(REP[id])}" placeholder="${esc(ph)}"></label>`;
+  view.innerHTML = `<div class="mhead noprint"><span class="crumb">Reports · ${state.year} season</span><h1>Create a report</h1><div class="kente thin"></div></div>
+  <div class="rbuild">
+    <form class="panel rform noprint" id="rform" onsubmit="return false">
+      <fieldset><legend>Area</legend>
+        <label class="rr"><input type="radio" name="scope" value="unit"${REP.scope === 'unit' ? ' checked' : ''}> ${esc(unitName || '')}${lvl === 'district' ? ' district' : ' Region'}</label>
+        <label class="rr"><input type="radio" name="scope" value="national"${REP.scope === 'national' ? ' checked' : ''}> Ghana, all 16 regions</label>
+        <p class="note">Change the region, district or season with the selectors at the top.</p></fieldset>
+      <fieldset><legend>Sections</legend>${RSECT.map(([k, l]) => `<label class="rr"><input type="checkbox" name="sec" value="${k}"${REP.sections.includes(k) ? ' checked' : ''}> ${l}</label>`).join('')}</fieldset>
+      <fieldset><legend>Report details</legend>${f('title', 'Title (optional)', 'Leave blank for an automatic title')}${f('ref', 'Reference number (optional)', 'e.g. NR/AGR/2026/014')}${f('forOrg', 'Prepared for', 'e.g. Regional Department of Agriculture')}</fieldset>
+      <fieldset><legend>Your details</legend>${f('byName', 'Name', 'Full name')}${f('byRole', 'Position', 'e.g. Agricultural Extension Officer')}${f('byOrg', 'Organisation', 'Organisation name')}${f('byContact', 'Contact', 'Email or phone')}
+        <label class="rf"><span>Organisation logo (optional)</span><input type="file" id="logoIn" accept="image/png,image/jpeg,image/svg+xml"></label>${REP.logo ? '<button type="button" class="btn sm" id="logoRm">Remove logo</button>' : ''}
+        <label class="rf"><span>Observations and recommendations</span><textarea id="notes" rows="6" placeholder="Your own findings, field observations or advice. Appears as its own section.">${esc(REP.notes)}</textarea></label>
+        <label class="rr"><input type="checkbox" id="remember"${REP.remember ? ' checked' : ''}> Remember my details on this device</label></fieldset>
+      <button type="button" class="btn primary rprint" id="rprint">Print or save as PDF</button>
+      <p class="note">Your details and logo stay in this browser; nothing is uploaded. In the print dialog choose “Save as PDF” and A4.</p>
+    </form>
+    <div class="rpaper" id="rpaper"><p class="loading">Building report…</p></div>
+  </div>`;
+  const persist = () => store.set('agrointel.report', REP.remember ? REP : { ...RDEF, sections: REP.sections, scope: REP.scope, remember: false });
+  let R = null;
+  const draw = () => { if (R) $('#rpaper').innerHTML = reportDoc(R); };
+  const load = async () => {
+    try {
+      if (REP.scope === 'national') R = await nationalView(state.year);
+      else { const U = await unitData(lvl, curKey()); R = asView(U, state.year); }
+      if (!R) { $('#rpaper').innerHTML = `<p class="loading">No data for ${state.year}.</p>`; return; }
+      draw();
+    } catch (e) { $('#rpaper').innerHTML = `<p class="loading">Could not build the report (${esc(e.message)}).</p>`; }
+  };
+  const form = $('#rform');
+  form.addEventListener('input', e => {
+    const t = e.target;
+    if (t.name === 'scope') { REP.scope = t.value; persist(); load(); return; }
+    if (t.name === 'sec') REP.sections = $$('#rform [name=sec]:checked').length ? [...$$('#rform [name=sec]:checked')].map(x => x.value) : [];
+    else if (t.id === 'remember') REP.remember = t.checked;
+    else if (t.id in REP && t.type !== 'file') REP[t.id] = t.value;
+    persist(); draw();
+  });
+  $('#logoIn').onchange = e => { const file = e.target.files[0]; if (!file) return;
+    if (file.size > 600 * 1024) { alertLine('Logo is over 600 KB; please use a smaller image.'); return; }
+    const rd = new FileReader(); rd.onload = () => { REP.logo = rd.result; persist(); reportView(); }; rd.readAsDataURL(file); };
+  const rm = $('#logoRm'); if (rm) rm.onclick = () => { REP.logo = ''; persist(); reportView(); };
+  $('#rprint').onclick = () => { if (R) window.print(); };
+  let ps = document.getElementById('rpage'); if (!ps) { ps = document.createElement('style'); ps.id = 'rpage'; document.head.appendChild(ps); }
+  const foot = `AgroIntel Africa · ${location.host}${location.pathname}${D.meta.sample ? ' · SAMPLE DATA' : ''}`.replace(/["\\]/g, '');
+  ps.textContent = `@page{@bottom-left{content:"${foot}";font:9px sans-serif;color:#4D5E55}@bottom-right{content:"Page " counter(page) " of " counter(pages);font:9px sans-serif;color:#4D5E55}}`;
+  await load();
+}
+function alertLine(msg) { const p = document.createElement('p'); p.className = 'note warnline'; p.textContent = msg; $('#rform').prepend(p); setTimeout(() => p.remove(), 5000); }
+
 function syncPickers() {
   $('#region').value = state.region;
   const ds = D.sum.district ? D.sum.district.units.filter(u => u.region === state.region).sort((a, b) => a.name.localeCompare(b.name)) : [];
