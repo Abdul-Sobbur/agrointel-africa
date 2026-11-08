@@ -53,6 +53,15 @@ def retry(fn, *a, tries=3, **k):
             time.sleep(10 * (i + 1))
 
 
+def soft(label, fn, *a, default=None, **k):
+    """Run a stage; on failure log a warning and return `default` so the rest still runs."""
+    try:
+        return retry(fn, *a, **k)
+    except Exception as e:
+        log.warning("%s failed, continuing without it: %s", label, e)
+        return default
+
+
 def r(v, d=1):
     return None if v is None or (isinstance(v, float) and math.isnan(v)) else round(float(v), d)
 
@@ -66,8 +75,10 @@ def update_monthly(fc, keys, cache_name, fetch, first_year, year, last_month, re
         if str(y) in have and y < year - 1:
             continue
         lm = last_month if y == year else 12
-        log.info("%s: fetching %s", cache_name, y)
-        res = retry(fetch, fc, y, lm) if fetch is E.chirps_monthly_year else retry(fetch, fc, y)
+        res = soft(f"{cache_name} {y}", fetch, fc, y, lm, default={}) if fetch is E.chirps_monthly_year \
+            else soft(f"{cache_name} {y}", fetch, fc, y, default={})
+        n = sum(1 for row in res.values() for v in row.values() if v is not None)
+        (log.info if n else log.warning)("%s %s: %d values", cache_name, y, n)
         for k in keys:
             row = res.get(k, {})
             for m in range(1, 13):
@@ -90,8 +101,10 @@ def update_season_history(fc, keys, rebuild):
     for y in range(NORMAL_START, NORMAL_END + 1):
         if all(str(y) in cache.get(k, {}) for k in keys):
             continue
-        log.info("season history: %s", y)
-        dates, daily = retry(E.chirps_daily_year, fc, y)
+        dates, daily = soft(f"season history {y}", E.chirps_daily_year, fc, y, default=([], {}))
+        log.info("season history %s: %d days", y, len(dates))
+        if not dates:
+            continue
         for k in keys:
             ind = A.season_indicators(dates, daily[k], REGIONS[k]["regime"])
             ind["total"] = round(sum(daily[k]), 1)
@@ -125,33 +138,36 @@ def main() -> None:
     # Rainfall history and current year
     rain = update_monthly(fc, keys, "chirps_monthly.json", E.chirps_monthly_year, NORMAL_START, year, last_month, args.rebuild)
     seasons_hist = update_season_history(fc, keys, args.rebuild)
-    dates, daily = retry(E.chirps_daily_year, fc, year, latest)
+    dates, daily = soft("daily rainfall", E.chirps_daily_year, fc, year, latest, default=([], {}))
+    log.info("daily rainfall %s: %d days", year, len(dates))
 
     # Vegetation history
     ndvi = update_monthly(fc, keys, "ndvi_monthly.json", E.ndvi_monthly_year, NDVI_BASE_START, dt.date.today().year, 12, args.rebuild)
 
     # Temperature, evapotranspiration, water
     log.info("temperature")
-    temps = retry(E.era5_annual_temps, fc, TEMP_TREND_START, year)
+    temps = soft("temperature", E.era5_annual_temps, fc, TEMP_TREND_START, year, default={})
     pet_norm = load("pet_normal.json")
     if not pet_norm or args.rebuild:
         log.info("PET normal")
-        pet_norm = retry(E.pet_monthly, fc, None)
-        save("pet_normal.json", pet_norm)
+        pet_norm = soft("PET normal", E.pet_monthly, fc, None, default={})
+        if pet_norm:
+            save("pet_normal.json", pet_norm)
     log.info("PET %s", year)
-    pet_now = retry(E.pet_monthly, fc, year)
+    pet_now = soft("PET", E.pet_monthly, fc, year, default={})
 
     today = dt.date.today()
     wy, wm = (today.year, today.month - 1) if today.month > 1 else (today.year - 1, 12)
     log.info("water %s-%02d", wy, wm)
-    water = retry(E.water_areas, fc, wy, wm)
+    water = soft("water", E.water_areas, fc, wy, wm, default={})
 
     # Maps
     maps_meta = None
     if not args.no_maps:
         log.info("map images")
-        maps_meta = retry(E.region_maps, geo, WEB_DATA / "maps", wy, wm)
-        (WEB_DATA / "maps.json").write_text(json.dumps(maps_meta))
+        maps_meta = soft("map images", E.region_maps, geo, WEB_DATA / "maps", wy, wm, default=None)
+        if maps_meta:
+            (WEB_DATA / "maps.json").write_text(json.dumps(maps_meta))
     elif (WEB_DATA / "maps.json").exists():
         maps_meta = json.loads((WEB_DATA / "maps.json").read_text())
 
@@ -260,7 +276,7 @@ def main() -> None:
         if farms.get("features"):
             log.info("farms: %d", len(farms["features"]))
             fy, fm = (today.year, today.month - 1) if today.month > 1 else (today.year - 1, 12)
-            fs = retry(E.farm_stats, farms, fy, fm)
+            fs = soft("farms", E.farm_stats, farms, fy, fm, default={})
             for f in farms["features"]:
                 s = fs.get(f["properties"]["id"], {})
                 f["properties"]["ndvi"] = [r(s.get(f"m{m:02d}"), 3) for m in range(1, 13)]

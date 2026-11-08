@@ -76,6 +76,8 @@ def chirps_daily_year(fc, year: int, until: dt.date | None = None) -> tuple[list
     col = ee.ImageCollection(DS["chirps"]).select("precipitation").filterDate(f"{year}-01-01", end)
     times = col.aggregate_array("system:time_start").getInfo()
     dates = [dt.datetime.fromtimestamp(t / 1000, dt.timezone.utc).date() for t in times]
+    if not dates:
+        return [], {}
     names = [f"d{i:03d}" for i in range(len(dates))]
     img = col.toBands().rename(names)
     res = _reduce(img, fc, scale=5566)
