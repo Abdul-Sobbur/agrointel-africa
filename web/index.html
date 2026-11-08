@@ -1,0 +1,83 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>AgroIntel Africa</title>
+<meta name="description" content="Agricultural intelligence for Ghana from open satellite and climate data: rainfall, drought, vegetation, water and farm monitoring.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Unbounded:wght@500;700;800&family=Figtree:wght@400;500;600;700&family=JetBrains+Mono:wght@400;600&display=swap">
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="">
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<div id="banner" class="banner" hidden></div>
+
+<!-- ============ LANDING ============ -->
+<div id="home">
+  <section class="night">
+    <div class="gut"><div class="inner">
+      <div class="lnav">
+        <a class="logo" href="#"><span class="lm"></span>AgroIntel Africa</a>
+        <div class="links">
+          <a class="txt" href="#methods">Methods</a>
+          <a class="txt" id="repoLink" href="#">GitHub</a>
+          <a class="ghost" href="#overview">Open dashboard</a>
+        </div>
+      </div>
+      <div class="hero">
+        <div>
+          <span class="eyebrow-n">Agricultural intelligence · Ghana</span>
+          <h1>Know every field <em>before</em> the season turns.</h1>
+          <p class="lede">Open satellite and climate data, processed in Google Earth Engine, turned into plain answers about rainfall, drought, crop health, water and risk for all 16 regions of Ghana.</p>
+          <div class="ctas">
+            <a class="cta" href="#overview">Explore the dashboard <span aria-hidden="true">→</span></a>
+            <a class="cta alt" href="#methods">How it works</a>
+          </div>
+        </div>
+        <div class="hero-vis" id="heroVis"></div>
+      </div>
+    </div></div>
+    <div class="kente"></div>
+    <div class="statband gut"><div class="inner" id="stats"></div></div>
+  </section>
+
+  <section class="lsec gut"><div class="inner">
+    <span class="lbl">The platform</span>
+    <h2>Five intelligence modules. One view of the land.</h2>
+    <p class="sub-l">Each module answers a practical question in plain language first, with maps and charts behind it.</p>
+    <div class="mods" id="modTiles"></div>
+    <p class="lbl" style="margin-top:36px">Built on open Earth-observation data</p>
+    <div class="sources"><span class="src">CHIRPS v3</span><span class="src">ERA5-Land</span><span class="src">MODIS NDVI</span><span class="src">MODIS ET</span><span class="src">Sentinel-1</span><span class="src">Sentinel-2</span><span class="src">JRC Surface Water</span><span class="src">Hansen GFC</span><span class="src">geoBoundaries</span></div>
+  </div></section>
+
+  <footer class="lfoot gut"><div class="inner">
+    <div class="kente thin" style="max-width:140px"></div>
+    <p>AgroIntel Africa · a personal, noncommercial portfolio project. Data processed with Google Earth Engine.</p>
+  </div></footer>
+</div>
+
+<!-- ============ APP ============ -->
+<div id="app" class="app" hidden>
+  <aside class="rail">
+    <div class="brand"><a class="logo" href="#"><span class="lm"></span>AgroIntel</a></div>
+    <nav id="nav" aria-label="Modules"></nav>
+    <div class="foot"><div class="kente thin"></div><a href="#methods">Data and methods</a><a href="#">Back to home</a></div>
+  </aside>
+  <div class="main">
+    <div class="topbar gut"><div class="inner">
+      <a class="logo" href="#"><span class="lm"></span><span>AgroIntel</span></a>
+      <div class="pickers">
+        <span class="asof" id="asof"></span>
+        <select class="pick" id="region" aria-label="Region"></select>
+      </div>
+    </div></div>
+    <div class="content gut"><div class="inner" id="view"><p class="loading">Loading data…</p></div></div>
+  </div>
+</div>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
+<script src="app.js"></script>
+</body>
+</html>
