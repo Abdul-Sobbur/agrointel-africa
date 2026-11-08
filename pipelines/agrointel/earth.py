@@ -258,7 +258,7 @@ def farm_stats(farms_geojson: dict, year: int, last_month: int) -> dict[str, dic
         bands.append(_safe(base, f"n{m:02d}", "median"))
     stats = _reduce(ee.Image.cat(bands), fc, scale=10, id_prop="id")
     gfc = ee.Image(DS["hansen"])
-    loss = gfc.select("lossyear").gte(21).multiply(ee.Image.pixelArea()).divide(1e4).rename("loss_ha_2021")
+    loss = gfc.select("lossyear").gte(21).multiply(ee.Image.pixelArea()).divide(1e4).rename("loss_ha_since_2021")
     cover = gfc.select("treecover2000").rename("treecover2000")
     forest = _reduce(loss, fc, scale=30, reducer=ee.Reducer.sum(), id_prop="id")
     tc = _reduce(cover, fc, scale=30, id_prop="id")

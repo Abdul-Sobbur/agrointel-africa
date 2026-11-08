@@ -287,7 +287,7 @@ def main() -> None:
                 s = fs.get(f["properties"]["id"], {})
                 f["properties"]["ndvi"] = [r(s.get(f"m{m:02d}"), 3) for m in range(1, 13)]
                 f["properties"]["ndvi_normal"] = [r(s.get(f"n{m:02d}"), 3) for m in range(1, 13)]
-                f["properties"]["loss_ha_2021_2023"] = r(s.get("loss_ha_2021"), 2)
+                f["properties"]["loss_ha_since_2021"] = r(s.get("loss_ha_since_2021"), 2)
                 f["properties"]["treecover2000"] = r(s.get("treecover2000"), 0)
             farms_out = farms
             (WEB_DATA / "farms.json").write_text(json.dumps(farms, separators=(",", ":")))

@@ -11,7 +11,7 @@
 | Field greenness | Sentinel-2 SR (`COPERNICUS/S2_SR_HARMONIZED`) | 10 m | Farm NDVI (SCL cloud mask) |
 | Evapotranspiration | MODIS PET (`MODIS/061/MOD16A2`) | 500 m, 8-day | Water balance, aridity |
 | Water | Sentinel-1 GRD (`COPERNICUS/S1_GRD`), JRC GSW 1.4 | 10–30 m | Monthly water area, permanent water |
-| Forest | Hansen GFC v1.11 (`UMD/hansen/global_forest_change_2023_v1_11`) | 30 m | Tree cover 2000, loss 2021–2023 |
+| Forest | Hansen GFC v1.13 (`UMD/hansen/global_forest_change_2025_v1_13`) | 30 m | Tree cover 2000, loss 2021–2025 |
 | Boundaries | geoBoundaries ADM1, Ghana | – | 16 regions |
 
 ## Methods

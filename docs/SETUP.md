@@ -14,7 +14,7 @@ Keep the service-account key private: never paste it into chats, issues or code.
 1. Cloud console → **IAM & Admin → Service Accounts → Create service account**.
    * Name: `agrointel-pipeline`.
 2. Grant it these roles:
-   * **Earth Engine Resource Viewer** (`roles/earthengine.viewer`)
+   * **Earth Engine Resource Writer** (`roles/earthengine.writer`), needed to create map images
    * **Service Usage Consumer** (`roles/serviceusage.serviceUsageConsumer`)
 3. Open the new service account → **Keys → Add key → Create new key → JSON**. A `.json` file downloads.
 

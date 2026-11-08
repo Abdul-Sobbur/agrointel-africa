@@ -138,7 +138,7 @@ class FakeEarth(SimpleNamespace):
                 if f"m{m:02d}" in row and m <= lm:
                     s[f"m{m:02d}"] = row[f"m{m:02d}"] * 1.08
                 s[f"n{m:02d}"] = norm.get(f"m{m:02d}", 0.5) * 1.05
-            s["loss_ha_2021"] = 0.0
+            s["loss_ha_since_2021"] = 0.0
             s["treecover2000"] = 62 if k == "ashanti" else 8
             out[fid] = s
         return out

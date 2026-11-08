@@ -75,7 +75,7 @@ Only map farms with the farmer's permission.
 
 ## Data and credits
 
-CHIRPS v3 (UCSB Climate Hazards Center) · ERA5-Land (ECMWF / Copernicus Climate Change Service) · MODIS MOD13Q1 and MOD16A2 (NASA LP DAAC) · Sentinel-1 and Sentinel-2 (ESA Copernicus) · JRC Global Surface Water (EC JRC / Google) · Hansen Global Forest Change (University of Maryland) · geoBoundaries (CC BY 4.0) · Base maps © OpenStreetMap contributors, © CARTO, imagery © Esri.
+CHIRPS v3 (UCSB Climate Hazards Center) · ERA5-Land (ECMWF / Copernicus Climate Change Service) · MODIS MOD13Q1 and MOD16A2 (NASA LP DAAC) · Sentinel-1 and Sentinel-2 (ESA Copernicus) · JRC Global Surface Water (EC JRC / Google) · Hansen Global Forest Change v1.13 (University of Maryland) · geoBoundaries (CC BY 4.0) · Base maps and imagery © Esri and contributors.
 Processing with [Google Earth Engine](https://earthengine.google.com/) under its noncommercial terms.
 
 Code: MIT licence. Data remain under their providers' licences.

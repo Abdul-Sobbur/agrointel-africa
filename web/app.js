@@ -408,12 +408,12 @@ function farmReport(x) {
   if (mon) {
     const nd = p.ndvi || [], nn = p.ndvi_normal || [], lm = nd.map((v, i) => isNum(v) ? i : -1).filter(i => i >= 0).pop();
     const rel = lm != null && isNum(nn[lm]) ? nd[lm] / nn[lm] : null, rc = rel == null ? ['No recent image', 'neu'] : rel >= 1.05 ? ['Greener than usual', 'good'] : rel >= .9 ? ['About usual', 'mod'] : ['Less green than usual', 'warn'];
-    const loss = p.loss_ha_2021_2023;
+    const loss = p.loss_ha_since_2021 ?? p.loss_ha_2021_2023;
     body = `${chip(rc[0], rc[1])}
       <div><span class="lbl">Field monitoring · Sentinel-2</span>${lineChart([{ vals: nn, cls: 'l-norm', dash: true }, { vals: nd, cls: 'l-act', area: true, dot: true }], MON.map(m => m[0]), { fmt: v => fx(v, 2), min: 0, max: .9, h: 170, title: 'Field NDVI' })}
       <div class="key"><span><i class="line" style="background:var(--green)"></i>This year</span><span><i class="line" style="background:var(--muted)"></i>2019–2023 median</span></div></div>
-      <div class="facts">${fact('Area', fx(ha, 2) + ' ha', fx(ha * 2.471, 2) + ' acres')}${fact('Tree cover 2000', fx(p.treecover2000) + '%', 'Hansen GFC')}${fact('Forest loss', fx(loss, 2) + ' ha', '2021–2023')}</div>
-      <p class="note">${isNum(loss) && loss > 0 ? 'Tree-cover loss after 2020 was detected inside this boundary. Check before claiming deforestation-free status.' : 'No tree-cover loss after 2020 detected inside this boundary (Hansen Global Forest Change, 30 m).'}</p>`;
+      <div class="facts">${fact('Area', fx(ha, 2) + ' ha', fx(ha * 2.471, 2) + ' acres')}${fact('Tree cover 2000', fx(p.treecover2000) + '%', 'Hansen GFC')}${fact('Forest loss', fx(loss, 2) + ' ha', '2021–2025')}</div>
+      <p class="note">${isNum(loss) && loss > 0 ? 'Tree-cover loss after 2020 was detected inside this boundary. Check before claiming deforestation-free status.' : 'No tree-cover loss after 2020 detected inside this boundary (Hansen Global Forest Change v1.13, 30 m).'}</p>`;
   } else {
     body = `${chip('Not monitored yet', 'neu')}
       <div class="facts">${fact('Area', fx(ha, 2) + ' ha', fx(ha * 2.471, 2) + ' acres')}${fact('Perimeter', fx(perimeter(latlngs, true)) + ' m', '')}${fact('Region risk', fx((s.risk || {}).composite), level((s.risk || {}).composite)[0])}</div>
@@ -446,7 +446,7 @@ function methodsView() {
       <li><strong>Vegetation:</strong> MODIS Terra NDVI (MOD13Q1), 250 m, 16-day, with cloudy pixels removed; Sentinel-2 surface reflectance, 10 m, for farms.</li>
       <li><strong>Evapotranspiration:</strong> MODIS MOD16A2 potential evapotranspiration, 500 m.</li>
       <li><strong>Water:</strong> Sentinel-1 radar (VV backscatter below −16 dB) within the JRC Global Surface Water maximum extent; JRC occurrence for permanent water.</li>
-      <li><strong>Forest:</strong> Hansen Global Forest Change v1.11 (tree cover 2000, loss year).</li>
+      <li><strong>Forest:</strong> Hansen Global Forest Change v1.13 (tree cover 2000, loss year to 2025).</li>
       <li><strong>Boundaries:</strong> geoBoundaries ADM1 for Ghana's 16 regions (CC BY 4.0).</li>
     </ul>
     <h3>Methods</h3>

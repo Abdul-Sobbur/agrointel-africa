@@ -25,7 +25,7 @@ DS = {
     "s1": "COPERNICUS/S1_GRD",                          # band: VV (dB), 10 m
     "s2": "COPERNICUS/S2_SR_HARMONIZED",                # 10 m optical
     "jrc_water": "JRC/GSW1_4/GlobalSurfaceWater",       # band: occurrence (%)
-    "hansen": "UMD/hansen/global_forest_change_2023_v1_11",  # band: lossyear (1-23 = 2001-2023)
+    "hansen": "UMD/hansen/global_forest_change_2025_v1_13",  # band: lossyear (1-25 = 2001-2025)
 }
 
 # Region metadata. "regime": uni = one rainy season (north), bi = two seasons (south).
