@@ -158,25 +158,104 @@ const MODS = {
   farms: { n: 'Farms', full: 'Farm management', col: 'kblack', ltr: 'E', subs: [['trace', 'Map a farm'], ['list', 'Monitored farms']],
     items: ['Trace boundaries on imagery', 'Area and perimeter', 'Sentinel-2 field monitoring', 'Forest-loss check since 2021'] }
 };
-const LOGO = '<svg width="30" height="30" viewBox="0 0 30 30" aria-hidden="true"><rect width="30" height="30" rx="7" fill="#161616"/><rect x="5" y="5" width="20" height="5" fill="#E3A015"/><rect x="5" y="12.5" width="20" height="5" fill="#0E7A44"/><rect x="5" y="20" width="20" height="5" fill="#C2302A"/><rect x="9" y="3" width="4" height="24" fill="#E3A015" opacity=".9"/><rect x="17" y="3" width="4" height="24" fill="#F3F2FB" opacity=".85"/></svg>';
+const LOGO = '<span class="lmk"><img src="assets/logo-mark.svg" alt="" width="28" height="28"></span>';
+
+/* Hero photos: Unsplash License, hotlinked from images.unsplash.com as Unsplash asks, with photographer credit. */
+const UTM = '?utm_source=agrointel_africa&utm_medium=referral';
+const PHOTOS = {
+  nalerigu: { id: 'photo-1727188793085-8d9108789cdd', by: 'Oswald Elsaboath', user: 'ozzzyphotos', page: 'https://unsplash.com/photos/a-young-child-holding-a-corn-on-the-cob-bi5wB6UCZz0', alt: 'A young child holding a cob of maize in Nalerigu, Ghana', pos: '50% 40%' },
+  field: { id: 'photo-1562009059-7f43163873a0', by: 'Tomiwa Ogunmodede', user: 'tomiwao', page: 'https://unsplash.com/photos/woman-in-white-and-teal-polo-shirt-standing-near-open-field-jcKbKG8P_6U', alt: 'A woman standing beside an open field', pos: '50% 50%' }
+};
+const unsplash = (id, w) => `https://images.unsplash.com/${id}?auto=format&fit=crop&w=${w}&q=72`;
+const RISK_FILL = ['#8DD29A', '#FAB633', '#E8792B', '#C2302A'];
+const riskFill = v => !isNum(v) ? '#5E7266' : RISK_FILL[v < 30 ? 0 : v < 50 ? 1 : v < 70 ? 2 : 3];
+
+function ghanaSVG(fill, label) {
+  const proj = ([lon, lat]) => [(lon + 3.45) * 60, (11.25 - lat) * 60];
+  const path = g => (g.type === 'MultiPolygon' ? g.coordinates.flat() : g.coordinates).map(ring => 'M' + ring.map(p => proj(p).map(v => v.toFixed(1)).join(' ')).join('L') + 'Z').join('');
+  return `<svg viewBox="-4 -4 300 410" role="img" aria-label="${esc(label)}">${D.geo.features.map(f => `<path d="${path(f.geometry)}" fill="${fill(f)}"><title>${esc(f.properties.name || '')}</title></path>`).join('')}</svg>`;
+}
+
+function buildSlides() {
+  const R = D.meta.regions, ne = summary('north-east'), byRisk = [...R].sort((a, b) => b.risk.composite - a.risk.composite)[0];
+  const nUnits = D.meta.districts && D.sum.district ? `${D.sum.district.units.length} districts` : `${R.length} regions`;
+  const anomTxt = r => !r || !isNum(r.rain_anom) ? 'Rainfall is tracked against the 1991–2020 normal every week.'
+    : Math.abs(r.rain_anom) < 5 ? `Rainfall in ${r.name} Region is close to normal so far this season (${sgn(r.rain_anom)}%).`
+    : `Rainfall in ${r.name} Region is ${fx(Math.abs(r.rain_anom))}% ${r.rain_anom > 0 ? 'above' : 'below'} normal so far this season.`;
+  const keyOf = f => f.properties.key || f.properties.shapeName || f.properties.name;
+  const riskOf = f => { const k = keyOf(f); const r = R.find(x => x.key === k || x.name === k); return r ? r.risk.composite : null; };
+  const slides = [
+    { photo: PHOTOS.nalerigu, place: `Nalerigu · North East Region · ${D.meta.year}`, fact: anomTxt(ne) },
+    { map: true, place: `All ${R.length} regions · live`, fact: `Agricultural risk is recomputed every Monday. Highest right now: ${byRisk.name} (${byRisk.risk.composite}/100).` },
+    { photo: PHOTOS.field, place: 'Vegetation · every 16 days', fact: `Crop greenness is checked every 16 days across all ${nUnits}, and compared with 2001–2020.` }
+  ];
+  const fig = $('#slides'), n = slides.length;
+  fig.innerHTML = slides.map((s, i) => `<div class="slide${i ? '' : ' on'}${s.map ? ' mapslide' : ''}" role="group" aria-roledescription="slide" aria-label="${i + 1} of ${n}"${i ? ' aria-hidden="true"' : ''}>
+      ${s.photo ? `<img src="${unsplash(s.photo.id, 1000)}" srcset="${[640, 1000, 1400].map(w => unsplash(s.photo.id, w) + ' ' + w + 'w').join(', ')}" sizes="(min-width: 960px) 50vw, 100vw" alt="${esc(s.photo.alt)}" style="object-position:${s.photo.pos}"${i ? ' loading="lazy"' : ' fetchpriority="high"'}>
+        <span class="credit">Photo: <a href="https://unsplash.com/@${s.photo.user}${UTM}" target="_blank" rel="noopener">${esc(s.photo.by)}</a> / <a href="https://unsplash.com/${UTM}" target="_blank" rel="noopener">Unsplash</a></span>`
+      : ghanaSVG(f => riskFill(riskOf(f)), "Map of Ghana's regions coloured by agricultural risk")}
+    </div>`).join('') + `<span class="count" aria-hidden="true"><span id="sNum">1</span> / ${n}</span>
+    <figcaption><span class="cap-place" id="sPlace"></span><p class="cap-fact" id="sFact"></p><div class="legend-mini" id="sLegend" hidden>${['Low', 'Moderate', 'High', 'Very high'].map((l, i) => `<span><i style="background:${RISK_FILL[i]}"></i>${l}</span>`).join('')}</div>
+      <div class="ctrl"><button type="button" class="arw" id="sPrev" aria-label="Previous slide">‹</button><div class="dots">${slides.map((_, i) => `<button type="button" aria-label="Show slide ${i + 1}"${i ? '' : ' aria-current="true"'}></button>`).join('')}</div><button type="button" class="arw" id="sNext" aria-label="Next slide">›</button></div></figcaption>`;
+  let cur = 0, timer = null, paused = false;
+  const els = [...fig.querySelectorAll('.slide')], dots = [...fig.querySelectorAll('.dots button')];
+  const show = k => { cur = (k + n) % n;
+    els.forEach((e, i) => { e.classList.toggle('on', i === cur); e.setAttribute('aria-hidden', i === cur ? 'false' : 'true'); });
+    dots.forEach((d, i) => i === cur ? d.setAttribute('aria-current', 'true') : d.removeAttribute('aria-current'));
+    $('#sNum').textContent = cur + 1; $('#sPlace').textContent = slides[cur].place; $('#sFact').textContent = slides[cur].fact; $('#sLegend').hidden = !slides[cur].map; };
+  const reduce = window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches;
+  const start = () => { clearInterval(timer); if (!reduce) timer = setInterval(() => { if (!paused && !document.hidden) show(cur + 1); }, 6500); };
+  $('#sPrev').onclick = () => { show(cur - 1); start(); }; $('#sNext').onclick = () => { show(cur + 1); start(); };
+  dots.forEach((d, i) => d.onclick = () => { show(i); start(); });
+  fig.addEventListener('mouseenter', () => paused = true); fig.addEventListener('mouseleave', () => paused = false);
+  fig.addEventListener('focusin', () => paused = true); fig.addEventListener('focusout', () => paused = false);
+  show(0); start();
+  $('#credits').innerHTML = `Photos via Unsplash: ${Object.values(PHOTOS).map(p => `<a href="${p.page}${UTM}" target="_blank" rel="noopener">${esc(p.by)}</a>`).join(' and ')}. Data: CHIRPS, ECMWF ERA5-Land, NASA MODIS, ESA Copernicus Sentinel-1 and -2, EC JRC, Hansen/UMD/Google/USGS/NASA, geoBoundaries.`;
+}
+
+async function buildDemo(key) {
+  const box = $('#demo');
+  $$('#demoChips .chip-b').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.k === key)));
+  let U; try { U = await unitData('region', key); } catch (e) { box.innerHTML = '<p class="loading">Could not load this region.</p>'; return; }
+  const V = asView(U, U.current_year); if (!V) return;
+  const rn = V.rain, lm = rn.last_month || 12, mx = niceMax(Math.max(...rn.normal, ...rn.monthly.filter(isNum)));
+  const [vc] = vciClass(V.ndvi.vci), [rl, rc] = level(V.risk && V.risk.composite);
+  const R = D.meta.regions, dry = [...R].sort((a, b) => b.risk.drought - a.risk.drought)[0];
+  const say = `${isNum(rn.anomaly_pct) ? `Rainfall to the end of ${MONTH[lm - 1]} is ${Math.abs(rn.anomaly_pct) < 5 ? 'close to normal' : fx(Math.abs(rn.anomaly_pct)) + '% ' + (rn.anomaly_pct > 0 ? 'above' : 'below') + ' normal'}` : 'Rainfall data is still coming in'}, and vegetation condition is ${vc.toLowerCase()}.`;
+  box.innerHTML = `<div class="demo-top" aria-hidden="true"><span></span><span></span><span></span></div>
+    <div class="demo-body">
+      <div class="demo-head"><h3>${esc(V.name)} Region</h3><span>${V.year} · TO ${MON[lm - 1].toUpperCase()}</span></div>
+      <p class="demo-say">${esc(say)}</p>
+      <div class="tiles"><div class="tile"><small>Rainfall</small><b>${sgn(rn.anomaly_pct)}%</b></div><div class="tile"><small>Vegetation (VCI)</small><b>${fx(V.ndvi.vci)}</b></div><div class="tile"><small>Risk</small><b style="color:var(--${rc === 'good' ? 'good' : rc === 'mod' ? 'mod' : rc === 'warn' ? 'warn' : 'bad'})">${fx(V.risk && V.risk.composite)} ${rl}</b></div></div>
+      <div><div class="minibars" role="img" aria-label="Monthly rainfall in ${esc(V.name)} for ${V.year} against the 1991–2020 normal">${rn.normal.map((nv, i) => { const a = rn.monthly[i]; return `<div class="col"><span class="nrm" style="bottom:${(nv / mx * 100).toFixed(1)}%"></span>${isNum(a) && i < lm ? `<span class="act${a < nv * .8 ? ' dry' : ''}" style="height:${Math.max(1, a / mx * 100).toFixed(1)}%"></span>` : ''}</div>`; }).join('')}</div>
+        <div class="mlabels" aria-hidden="true">${MON.map(m => `<span>${m[0]}</span>`).join('')}</div></div>
+      <div class="demo-key"><span><i style="background:var(--accent)"></i>Rain this year</span><span><i style="background:var(--sun)"></i>Under 80% of normal</span><span><i style="border-top:2px dashed var(--muted);height:0;width:14px"></i>1991–2020 normal</span></div>
+      <div class="demo-alert"><span><strong>Highest drought risk: ${esc(dry.name)}</strong> (${dry.risk.drought}/100), SPI-3 ${sgn(dry.spi3, 1)}.</span></div>
+      <div class="demo-foot"><a href="#overview" id="demoGo">Open ${esc(V.name)} in the dashboard →</a></div>
+    </div>`;
+  $('#demoGo').onclick = () => { state.region = key; state.district = null; state.year = D.meta.year; save(); syncPickers(); };
+}
 
 function buildLanding() {
   $$('.lm').forEach(e => e.outerHTML = LOGO);
   $('#repoLink').href = REPO;
-  // hero map from the real region boundaries
-  const proj = ([lon, lat]) => [(lon + 3.45) * 60, (11.25 - lat) * 60];
-  const path = g => g.coordinates.map(ring => 'M' + ring.map(p => proj(p).map(v => v.toFixed(1)).join(' ')).join('L') + 'Z').join('');
-  const cols = ['var(--gold)', 'var(--green)', 'var(--red)'];
-  let s = D.geo.features.map(f => `<path class="rg" d="${path(f.geometry)}"/>`).join('');
-  D.geo.features.forEach((f, i) => { const ring = f.geometry.coordinates[0]; const lon = ring.reduce((a, p) => a + p[0], 0) / ring.length, lat = ring.reduce((a, p) => a + p[1], 0) / ring.length;
-    const [x, y] = proj([lon, lat]), c = cols[i % 3]; s += `<circle class="pulse" cx="${x}" cy="${y}" r="5" fill="${c}" style="animation-delay:${(i % 8) / 4}s"/><circle cx="${x}" cy="${y}" r="3.5" fill="${c}"/>`; });
-  const R = D.meta.regions, byRisk = [...R].sort((a, b) => b.risk.composite - a.risk.composite)[0], byVci = [...R].filter(r => isNum(r.vci)).sort((a, b) => b.vci - a.vci)[0], byRain = [...R].sort((a, b) => Math.abs(b.rain_anom) - Math.abs(a.rain_anom))[0];
-  $('#heroVis').innerHTML = `<svg viewBox="-4 -4 300 410" role="img" aria-label="Ghana's 16 regions">${s}</svg>
-    <div class="float f1"><span class="dot" style="background:var(--green)"></span>${esc(byVci.name)} · vegetation<b>VCI ${fx(byVci.vci)}</b></div>
-    <div class="float f2"><span class="dot" style="background:var(--red)"></span>${esc(byRisk.name)} · risk<b>${byRisk.risk.composite}/100</b></div>
-    <div class="float f3"><span class="dot" style="background:var(--gold)"></span>${esc(byRain.name)} · rainfall<b>${sgn(byRain.rain_anom)}% vs normal</b></div>`;
-  $('#stats').innerHTML = `<div><b>16</b><span>regions monitored</span></div><div><b>${fmtDay(D.meta.rain_latest)}</b><span>latest rainfall data</span></div><div><b>1991–2020</b><span>climate baseline</span></div><div><b>10 m</b><span>farm-level imagery</span></div>`;
-  $('#modTiles').innerHTML = Object.entries(MODS).filter(([k]) => k !== 'overview').map(([k, m]) => `<div class="mod"><div class="ltr" style="background:var(--${m.col})">${m.ltr}</div><h3>${m.full}</h3><ul>${m.items.map(i => `<li>${i}</li>`).join('')}</ul></div>`).join('');
+  $$('[data-to]').forEach(a => a.onclick = e => { e.preventDefault(); const t = document.getElementById(a.dataset.to); if (t) t.scrollIntoView(); });
+  const nd = D.meta.districts && D.sum.district ? D.sum.district.units.length : 0;
+  $('#heroPill').textContent = `Open data · ${D.meta.regions.length} regions${nd ? ` · ${nd} districts` : ''} · every season since ${D.meta.first_year || D.meta.year}`;
+  $('#heroFresh').textContent = `Rainfall data to ${fmtDate(D.meta.rain_latest)} · updated every Monday`;
+  buildSlides();
+  const picks = ['northern', 'upper-east', 'ashanti', 'volta', 'greater-accra'].filter(k => summary(k));
+  $('#demoChips').innerHTML = picks.map(k => `<button type="button" class="chip-b" data-k="${k}" aria-pressed="false">${esc(summary(k).name)}</button>`).join('');
+  $$('#demoChips .chip-b').forEach(b => b.onclick = () => buildDemo(b.dataset.k));
+  buildDemo(picks[0] || D.meta.regions[0].key);
+  $('#modTiles').innerHTML = Object.entries(MODS).filter(([k]) => k !== 'overview').map(([k, m]) => `<a class="mod" href="#${k}"><span class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${ICON[k]}</svg></span><h3>${m.full}</h3><ul>${m.items.map(i => `<li>${i}</li>`).join('')}</ul><span class="go">Open ${m.n.toLowerCase()} →</span></a>`).join('');
+  const hasTamale = D.sum.district && sumUnit('district', 'd-tamale-metropolitan');
+  $('#trio').innerHTML = `<a class="card dark" href="#climate" id="replay"><span class="tag">SEASON REPLAY</span><h3>Go back to any season since ${D.meta.first_year || 2001}</h3>
+      <div class="years" aria-hidden="true"><span>2011</span><span>2013</span><span class="sel">2015</span><span>2019</span><span>2024</span><span>${D.meta.year}</span></div>
+      <p>Tamale, 2015: the rains came about six weeks late and the season ended 22% drier than normal.</p></a>
+    <a class="card" href="#farms"><span class="tag">FARM TRACER</span><h3>Map a field in a minute</h3><div class="field" aria-hidden="true"></div><p>Draw a boundary on satellite imagery to get its area, greenness through the year, and a tree-loss check since 2021.</p></a>
+    <a class="card" href="${REPO}" target="_blank" rel="noopener"><span class="tag">OPEN SOURCE</span><h3>Runs in the open, every week</h3><div class="gh" aria-hidden="true"><b>✓</b> rainfall to ${esc(fmtDay(D.meta.rain_latest))}<br><b>✓</b> vegetation, water, risk<br><b>✓</b> ${D.meta.regions.length} regions${nd ? ` · ${nd} districts` : ''}<br><b>✓</b> published ${esc((D.meta.generated || '').slice(0, 10))}</div><p>The Earth Engine pipeline and this site are on GitHub under the MIT licence.</p></a>`;
+  $('#replay').onclick = () => { state.region = 'northern'; state.district = hasTamale ? 'd-tamale-metropolitan' : null; state.year = 2015; state.sub.climate = 'ind'; save(); syncPickers(); };
 }
 
 function renderNav(mod) {

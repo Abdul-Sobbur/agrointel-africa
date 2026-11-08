@@ -5,9 +5,17 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>AgroIntel Africa</title>
 <meta name="description" content="Agricultural intelligence for Ghana from open satellite and climate data: rainfall, drought, vegetation, water and farm monitoring.">
+<meta name="theme-color" content="#0C482E">
+<link rel="icon" href="assets/logo-mark.svg" type="image/svg+xml">
+<link rel="icon" href="assets/favicon-32.png" sizes="32x32" type="image/png">
+<link rel="apple-touch-icon" href="assets/apple-touch-icon.png">
+<meta property="og:title" content="AgroIntel Africa">
+<meta property="og:description" content="Agricultural intelligence for Ghana from open satellite and climate data.">
+<meta property="og:image" content="assets/icon-512.png">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Unbounded:wght@500;700;800&family=Figtree:wght@400;500;600;700&family=JetBrains+Mono:wght@400;600&display=swap">
+<link rel="preconnect" href="https://images.unsplash.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap">
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="">
 <link rel="stylesheet" href="styles.css">
 </head>
@@ -16,45 +24,77 @@
 
 <!-- ============ LANDING ============ -->
 <div id="home">
-  <section class="night">
-    <div class="gut"><div class="inner">
-      <div class="lnav">
-        <a class="logo" href="#"><span class="lm"></span>AgroIntel Africa</a>
-        <div class="links">
-          <a class="txt" href="#methods">Methods</a>
-          <a class="txt" id="repoLink" href="#">GitHub</a>
-          <a class="ghost" href="#overview">Open dashboard</a>
-        </div>
-      </div>
-      <div class="hero">
-        <div>
-          <span class="eyebrow-n">Agricultural intelligence · Ghana</span>
-          <h1>Know every field <em>before</em> the season turns.</h1>
-          <p class="lede">Open satellite and climate data, processed in Google Earth Engine, turned into plain answers about rainfall, drought, crop health, water and risk for all 16 regions of Ghana.</p>
-          <div class="ctas">
-            <a class="cta" href="#overview">Explore the dashboard <span aria-hidden="true">→</span></a>
-            <a class="cta alt" href="#methods">How it works</a>
-          </div>
-        </div>
-        <div class="hero-vis" id="heroVis"></div>
-      </div>
-    </div></div>
-    <div class="kente"></div>
-    <div class="statband gut"><div class="inner" id="stats"></div></div>
-  </section>
+  <header class="lnav gut"><div class="inner">
+    <a class="logo" href="#"><span class="lm"></span>AgroIntel <span class="lt">Africa</span></a>
+    <nav class="links" aria-label="Main">
+      <a class="txt" href="#" data-to="features">Features</a>
+      <a class="txt" href="#" data-to="action">Live data</a>
+      <a class="txt" href="#methods">Methods</a>
+      <a class="txt" id="repoLink" href="#">GitHub</a>
+      <a class="lbtn sm" href="#overview">Open dashboard</a>
+    </nav>
+  </div></header>
 
-  <section class="lsec gut"><div class="inner">
-    <span class="lbl">The platform</span>
-    <h2>Five intelligence modules. One view of the land.</h2>
-    <p class="sub-l">Each module answers a practical question in plain language first, with maps and charts behind it.</p>
+  <section class="hero gut"><div class="inner">
+    <div class="hero-copy">
+      <span class="pill" id="heroPill">Open data · every season since 2001</span>
+      <h1>Agricultural intelligence for Ghana, built on open satellite data.</h1>
+      <p class="lede">Track rainfall, drought, crop health, water and risk for any region or district, replay past seasons, and check individual farms. Nothing to install.</p>
+      <div class="ctas">
+        <a class="lbtn" href="#overview">Open the dashboard <span aria-hidden="true">→</span></a>
+        <a class="lbtn alt" href="#methods">Read the methods</a>
+      </div>
+      <p class="fresh" id="heroFresh"></p>
+    </div>
+    <figure class="slides" id="slides" aria-roledescription="carousel" aria-label="Field photos and live facts"></figure>
+  </div></section>
+
+  <section class="built gut" aria-label="Data sources"><div class="inner">
+    <span class="b-lbl">Built on</span><span>CHIRPS v3</span><span>ERA5-Land</span><span>MODIS</span><span>Sentinel-1</span><span>Sentinel-2</span><span>JRC Surface Water</span><span>Hansen GFC</span><span>geoBoundaries</span><span>Google Earth Engine</span>
+  </div></section>
+
+  <section class="lsec gut" id="action"><div class="inner two">
+    <div class="sec-copy">
+      <span class="kick">See it in action</span>
+      <h2>Pick a region. Read its season in ten seconds.</h2>
+      <p class="sub-l">Each view leads with one plain sentence, then the chart behind it. This panel is live: it reads the same data as the dashboard.</p>
+      <div class="chips" id="demoChips" role="group" aria-label="Choose a region"></div>
+    </div>
+    <div class="demo" id="demo"><p class="loading">Loading…</p></div>
+  </div></section>
+
+  <section class="lsec gut" id="features"><div class="inner">
+    <span class="kick">The platform</span>
+    <h2>Everything about a district's season, in one place.</h2>
+    <p class="sub-l">Five modules, each answering a practical question first, with the maps and charts behind it.</p>
     <div class="mods" id="modTiles"></div>
-    <p class="lbl" style="margin-top:36px">Built on open Earth-observation data</p>
-    <div class="sources"><span class="src">CHIRPS v3</span><span class="src">ERA5-Land</span><span class="src">MODIS NDVI</span><span class="src">MODIS ET</span><span class="src">Sentinel-1</span><span class="src">Sentinel-2</span><span class="src">JRC Surface Water</span><span class="src">Hansen GFC</span><span class="src">geoBoundaries</span></div>
+    <div class="next">
+      <span class="next-lbl">Being built next</span>
+      <span>Soil profiles (iSDAsoil)</span><span>Farmland-only vegetation</span><span>Reservoir fill levels</span><span>Compare and report card</span><span>Land change and fires</span>
+    </div>
+  </div></section>
+
+  <section class="lsec gut tight"><div class="inner trio" id="trio"></div></section>
+
+  <section class="lsec gut"><div class="inner two top">
+    <div class="sec-copy">
+      <span class="kick">Open methods</span>
+      <h2>Every number can be checked.</h2>
+      <p class="sub-l">Each figure traces back to a public dataset and a published method. The code runs in the open on GitHub every Monday.</p>
+      <a class="lbtn alt" href="#methods">Data and methods <span aria-hidden="true">→</span></a>
+    </div>
+    <ul class="meth">
+      <li><b>Drought</b><span>Standardised Precipitation Index, SPI-3 (McKee et al., 1993)</span></li>
+      <li><b>Vegetation</b><span>Standardised Vegetation Condition Index (after Kogan, 1995)</span></li>
+      <li><b>Crops</b><span>FAO land-evaluation classes, S1 to N, for nine crops</span></li>
+      <li><b>Baseline</b><span>WMO 1991–2020 climate normals</span></li>
+    </ul>
   </div></section>
 
   <footer class="lfoot gut"><div class="inner">
-    <div class="kente thin" style="max-width:140px"></div>
-    <p>AgroIntel Africa · a personal, noncommercial portfolio project. Data processed with Google Earth Engine.</p>
+    <div class="f-brand"><a class="logo" href="#"><span class="lm"></span>AgroIntel <span class="lt">Africa</span></a>
+      <p>A personal, noncommercial portfolio project. Data processed with Google Earth Engine.</p></div>
+    <p class="credits" id="credits"></p>
   </div></footer>
 </div>
 
