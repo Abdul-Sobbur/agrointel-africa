@@ -144,7 +144,8 @@ const ICON = {
   water: '<path d="M12 3s6 6.5 6 11a6 6 0 0 1-12 0c0-4.5 6-11 6-11z"/>',
   risk: '<path d="M12 4l9 16H3z M12 10v4.5 M12 17.2v.3"/>',
   farms: '<path d="M4 8l7-4 9 5-2 11-12-2z"/>',
-  report: '<path d="M7 3h7l4 4v14H7z M14 3v4h4 M10 12h5 M10 16h5"/>'
+  report: '<path d="M7 3h7l4 4v14H7z M14 3v4h4 M10 12h5 M10 16h5"/>',
+  workspace: '<path d="M12 12a4 4 0 1 0 0-8 4 4 0 0 0 0 8z M4 21c0-4 3.6-6.5 8-6.5s8 2.5 8 6.5"/>'
 };
 const MODS = {
   overview: { n: 'Overview' },
@@ -243,6 +244,7 @@ function buildLanding() {
   $$('[data-to]').forEach(a => a.onclick = e => { e.preventDefault(); const t = document.getElementById(a.dataset.to); if (t) t.scrollIntoView(); });
   const nd = D.meta.districts && D.sum.district ? D.sum.district.units.length : 0;
   $('#heroPill').textContent = `Open data · ${D.meta.regions.length} regions${nd ? ` · ${nd} districts` : ''} · every season since ${D.meta.first_year || D.meta.year}`;
+  if (WS) { const a = $('#wsLand'); if (a) a.textContent = 'My workspace'; }
   $('#heroFresh').textContent = `Rainfall data to ${fmtDate(D.meta.rain_latest)} · updated every Monday`;
   buildSlides();
   const picks = ['northern', 'upper-east', 'ashanti', 'volta', 'greater-accra'].filter(k => summary(k));
@@ -260,12 +262,13 @@ function buildLanding() {
 }
 
 function renderNav(mod) {
-  $('#nav').innerHTML = [...Object.entries(MODS), ['report', { n: 'Report' }]].map(([k, m]) => `<a class="nv" href="#${k}"${mod === k ? ' aria-current="page"' : ''}><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${ICON[k]}</svg>${m.n}</a>`).join('');
+  $('#nav').innerHTML = [['workspace', { n: 'My workspace' }], ...Object.entries(MODS), ['report', { n: 'Report' }]].map(([k, m]) => `<a class="nv${k === 'workspace' ? ' nv-ws' : ''}" href="#${k}"${mod === k ? ' aria-current="page"' : ''}><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${ICON[k]}</svg>${m.n}</a>`).join('');
 }
 
 async function route() {
   const h = location.hash.slice(1);
-  const inApp = !!MODS[h] || h === 'methods' || h === 'report';
+  const inApp = !!MODS[h] || h === 'methods' || h === 'report' || h === 'workspace';
+  if (h !== 'workspace') state.wsEdit = false;
   document.body.classList.toggle('reporting', h === 'report');
   $('#home').hidden = inApp; $('#app').hidden = !inApp;
   clearMaps();
@@ -281,6 +284,7 @@ async function renderView(mod) {
   const view = $('#view');
   if (mod === 'methods') { view.innerHTML = methodsView(); return; }
   if (mod === 'report') { await reportView(); return; }
+  if (mod === 'workspace') { view.innerHTML = wsView(); afterWs(); window.scrollTo(0, 0); return; }
   if (mod === 'overview') { view.innerHTML = overview(); afterOverview(); return; }
   view.innerHTML = '<p class="loading">Loading…</p>';
   let U;
@@ -849,6 +853,138 @@ async function reportView() {
   await load();
 }
 function alertLine(msg) { const p = document.createElement('p'); p.className = 'note warnline'; p.textContent = msg; $('#rform').prepend(p); setTimeout(() => p.remove(), 5000); }
+
+/* ---------------- my workspace (stored in this browser; export/import to move it) ---------------- */
+const ROLES = {
+  extension: { label: 'Extension officer or district agriculture office', short: 'Extension', th: { spi: -1, vci: 35, risk: 60, res: 80 },
+    focus: [['crop', 'season', 'Season assessment'], ['climate', 'ind', 'Onset, cessation and dry spells'], ['crop', 'soil', 'Soil and land'], ['farms', 'trace', 'Map a farmer\'s field']] },
+  insurer: { label: 'Insurer or lender', short: 'Insurance and finance', th: { spi: -1.5, vci: 25, risk: 70, res: 70 },
+    focus: [['climate', 'drought', 'Drought index (SPI-3)'], ['climate', 'rain', 'Rainfall against normal'], ['risk', 'summary', 'Risk summary'], ['farms', 'list', 'Monitored farms']] },
+  water: { label: 'Irrigation or water manager', short: 'Water', th: { spi: -1, vci: 30, risk: 70, res: 80 },
+    focus: [['water', 'res', 'Reservoir levels'], ['water', 'stress', 'Water balance'], ['climate', 'rain', 'Rainfall against normal'], ['water', 'surface', 'Surface water map']] },
+  ngo: { label: 'NGO or development programme', short: 'Programmes', th: { spi: -1, vci: 30, risk: 60, res: 70 },
+    focus: [['risk', 'summary', 'Risk summary'], ['crop', 'health', 'Vegetation health'], ['climate', 'ind', 'Rainy season timing'], ['crop', 'suit', 'Crop suitability']] },
+  research: { label: 'Researcher or student', short: 'Research', th: { spi: -1, vci: 30, risk: 70, res: 70 },
+    focus: [['climate', 'drought', 'Drought index (SPI-3)'], ['climate', 'temp', 'Temperature trend'], ['crop', 'health', 'Vegetation condition'], ['crop', 'soil', 'Soil profile']] },
+  farmer: { label: 'Farmer or farmer group', short: 'Farming', th: { spi: -1, vci: 35, risk: 60, res: 80 },
+    focus: [['farms', 'trace', 'Map my field'], ['climate', 'ind', 'When the rains start'], ['crop', 'suit', 'Which crops suit here'], ['crop', 'soil', 'My soil']] },
+};
+const WS_KEY = 'agrointel.workspace';
+let WS = store.get(WS_KEY, null);
+const wsSave = () => { WS.updated = new Date().toISOString(); store.set(WS_KEY, WS); };
+const areaName = a => a.level === 'district' ? ((sumUnit('district', a.key) || {}).name || a.key) : `${(summary(a.key) || {}).name || a.key} Region`;
+const areaRegion = a => a.level === 'district' ? (sumUnit('district', a.key) || {}).region : a.key;
+const hello = () => { const h = new Date().getHours(); return h < 12 ? 'Good morning' : h < 17 ? 'Good afternoon' : 'Good evening'; };
+
+function wsAlerts(a, th) {
+  const b = sumYear(a.level, a.key, D.meta.year); if (!b) return [];
+  const out = [];
+  if (isNum(b.spi3) && b.spi3 <= th.spi) out.push(['bad', `Drought index ${sgn(b.spi3, 1)}`]);
+  if (isNum(b.vci) && b.vci < th.vci) out.push(['warn', `Vegetation condition ${fx(b.vci)}`]);
+  if (b.risk && isNum(b.risk.composite) && b.risk.composite >= th.risk) out.push(['bad', `Risk ${b.risk.composite}/100`]);
+  if (b.status === 'Stressed') out.push(['warn', 'Season stressed']);
+  return out;
+}
+
+function wsSetup() {
+  const w = WS || { role: '', name: '', position: '', org: '', contact: '', areas: [], reservoirs: [], th: null };
+  const opts = [...D.meta.regions.map(r => ({ level: 'region', key: r.key, label: `${r.name} Region`, sub: 'Region' })),
+    ...(D.sum.district ? D.sum.district.units.map(u => ({ level: 'district', key: u.key, label: u.name, sub: `${(summary(u.region) || {}).name || ''} Region` })) : [])]
+    .sort((a, b) => a.label.localeCompare(b.label));
+  const picked = new Set(w.areas.map(a => a.level + ':' + a.key));
+  const th = w.th || (ROLES[w.role] || ROLES.extension).th;
+  return `<div class="mhead"><span class="crumb">My workspace</span><h1>${WS ? 'Edit your workspace' : 'Set up your workspace'}</h1><div class="kente thin"></div></div>
+  <form class="panel wsform" id="wsform" onsubmit="return false">
+    <p class="note">Your workspace is saved in this browser only; nothing is sent anywhere. Use “Export” on the workspace page to move it to another device.</p>
+    <fieldset><legend>1 · What best describes your work?</legend><div class="roles">${Object.entries(ROLES).map(([k, r]) => `<label class="role"><input type="radio" name="role" value="${k}"${w.role === k ? ' checked' : ''} required><span>${r.label}</span></label>`).join('')}</div></fieldset>
+    <fieldset><legend>2 · Areas you follow <small id="nPicked">(${picked.size} chosen, up to 12)</small></legend>
+      <input type="search" id="areaQ" class="wsq" placeholder="Search regions and districts, e.g. Tolon or Upper East" aria-label="Search areas">
+      <div class="arealist" id="areaList">${opts.map(o => `<label class="ar" data-q="${esc((o.label + ' ' + o.sub).toLowerCase())}"><input type="checkbox" name="area" value="${o.level}:${o.key}"${picked.has(o.level + ':' + o.key) ? ' checked' : ''}><span>${esc(o.label)}</span><small>${esc(o.sub)}</small></label>`).join('')}</div></fieldset>
+    ${D.res ? `<fieldset><legend>3 · Reservoirs to watch (optional)</legend><div class="chips">${D.res.items.map(i => `<label class="rchip"><input type="checkbox" name="res" value="${i.key}"${w.reservoirs.includes(i.key) ? ' checked' : ''}> ${esc(i.name)}</label>`).join('')}</div></fieldset>` : ''}
+    <fieldset><legend>${D.res ? 4 : 3} · Alert me when</legend><div class="ths">
+      <label class="rf"><span>Drought index (SPI-3) falls to or below</span><input type="number" step="0.1" id="thSpi" value="${th.spi}"></label>
+      <label class="rf"><span>Vegetation condition (VCI) drops below</span><input type="number" step="1" id="thVci" value="${th.vci}"></label>
+      <label class="rf"><span>Composite risk reaches</span><input type="number" step="1" id="thRisk" value="${th.risk}"></label>
+      <label class="rf"><span>A reservoir falls below this % of usual</span><input type="number" step="5" id="thRes" value="${th.res}"></label></div>
+      <p class="note">Choosing a role fills in typical thresholds; change them if you like.</p></fieldset>
+    <fieldset><legend>${D.res ? 5 : 4} · Your details (optional, used on reports)</legend><div class="ths">
+      <label class="rf"><span>Name</span><input id="wsName" value="${esc(w.name)}"></label><label class="rf"><span>Position</span><input id="wsPos" value="${esc(w.position)}"></label>
+      <label class="rf"><span>Organisation</span><input id="wsOrg" value="${esc(w.org)}"></label><label class="rf"><span>Contact</span><input id="wsContact" value="${esc(w.contact)}"></label></div></fieldset>
+    <p class="warnline" id="wsErr" hidden></p>
+    <div class="wsact"><button type="button" class="btn primary" id="wsSaveB">Save workspace</button>${WS ? '<a class="btn" href="#workspace" id="wsCancel">Cancel</a>' : ''}</div>
+  </form>`;
+}
+function afterWsSetup() {
+  const list = $$('#areaList .ar');
+  $('#areaQ').oninput = e => { const q = e.target.value.trim().toLowerCase(); list.forEach(l => l.hidden = q && !l.dataset.q.includes(q)); };
+  const count = () => { const n = $$('#wsform [name=area]:checked').length; $('#nPicked').textContent = `(${n} chosen, up to 12)`; return n; };
+  $('#areaList').onchange = e => { if (count() > 12) { e.target.checked = false; count(); } };
+  $$('#wsform [name=role]').forEach(r => r.onchange = () => { const t = ROLES[r.value].th; $('#thSpi').value = t.spi; $('#thVci').value = t.vci; $('#thRisk').value = t.risk; $('#thRes').value = t.res; });
+  $('#wsSaveB').onclick = () => {
+    const role = ($('#wsform [name=role]:checked') || {}).value, areas = [...$$('#wsform [name=area]:checked')].map(x => { const [level, key] = x.value.split(':'); return { level, key }; });
+    const err = $('#wsErr');
+    if (!role || !areas.length) { err.hidden = false; err.textContent = !role ? 'Choose the description that fits your work.' : 'Choose at least one region or district.'; return; }
+    const num = (id, d) => { const v = parseFloat($(id).value); return Number.isFinite(v) ? v : d; }, t = ROLES[role].th;
+    WS = { v: 1, role, areas, reservoirs: [...$$('#wsform [name=res]:checked')].map(x => x.value),
+      th: { spi: num('#thSpi', t.spi), vci: num('#thVci', t.vci), risk: num('#thRisk', t.risk), res: num('#thRes', t.res) },
+      name: $('#wsName').value.trim(), position: $('#wsPos').value.trim(), org: $('#wsOrg').value.trim(), contact: $('#wsContact').value.trim(),
+      created: (WS && WS.created) || new Date().toISOString() };
+    wsSave();
+    // carry the details into the report builder where it has none yet
+    [['byName', 'name'], ['byRole', 'position'], ['byOrg', 'org'], ['byContact', 'contact']].forEach(([r, w]) => { if (!REP[r] && WS[w]) REP[r] = WS[w]; });
+    store.set('agrointel.report', REP);
+    location.hash = 'workspace'; route();
+  };
+}
+
+function wsView() {
+  if (!WS || state.wsEdit) return wsSetup();
+  const role = ROLES[WS.role] || ROLES.extension, th = WS.th || role.th;
+  const cards = WS.areas.map(a => {
+    const b = sumYear(a.level, a.key, D.meta.year) || {}, al = wsAlerts(a, th);
+    return `<article class="wscard${al.length ? ' wsalert' : ''}"><div class="wsc-head"><div><h3>${esc(areaName(a))}</h3><small>${a.level === 'district' ? esc((summary(areaRegion(a)) || {}).name || '') + ' Region' : 'Region'}</small></div>${b.status ? chip(b.status, statusCls(b.status)) : ''}</div>
+      <div class="wsc-facts"><span><small>Rain</small><b>${isNum(b.rain_anom) ? sgn(b.rain_anom) + '%' : '–'}</b></span><span><small>SPI-3</small><b>${sgn(b.spi3, 1)}</b></span><span><small>VCI</small><b>${fx(b.vci)}</b></span><span><small>Risk</small><b>${fx(b.risk && b.risk.composite)}</b></span></div>
+      ${al.length ? `<div class="wsc-al">${al.map(([c, t]) => chip(t, c)).join('')}</div>` : '<p class="wsc-ok">No alerts at your thresholds.</p>'}
+      <div class="wsc-act"><button type="button" class="linkb" data-open="${a.level}:${a.key}">Open in dashboard</button><button type="button" class="linkb" data-rep="${a.level}:${a.key}">Create report</button></div></article>`; }).join('');
+  const resCards = D.res ? WS.reservoirs.map(k => D.res.items.find(i => i.key === k)).filter(Boolean).map(it => { const t = it.stats || {}, low = isNum(t.pct_normal) && t.pct_normal < th.res;
+    return `<article class="wscard${low ? ' wsalert' : ''}"><div class="wsc-head"><div><h3>${esc(it.name)}</h3><small>Reservoir · ${esc(resRegion(it))}</small></div>${t.status ? chip(t.status, resCls(t.status)) : ''}</div>
+      <div class="wsc-facts"><span><small>Area</small><b>${isNum(t.area_km2) ? fx(t.area_km2, t.area_km2 < 100 ? 1 : 0) : '–'}</b></span><span><small>% usual</small><b>${isNum(t.pct_normal) ? t.pct_normal : '–'}</b></span><span><small>% full</small><b>${isNum(t.fill_pct) ? t.fill_pct : '–'}</b></span><span><small>Month</small><b>${t.latest_month ? MON[Number(t.latest_month.slice(5)) - 1] : '–'}</b></span></div>
+      ${low ? `<div class="wsc-al">${chip(`Below ${th.res}% of usual`, 'bad')}</div>` : '<p class="wsc-ok">No alerts at your thresholds.</p>'}
+      <div class="wsc-act"><button type="button" class="linkb" data-resopen="${it.key}">Open reservoir</button></div></article>`; }).join('') : '';
+  const nAl = WS.areas.reduce((n, a) => n + (wsAlerts(a, th).length ? 1 : 0), 0) + (D.res ? WS.reservoirs.filter(k => { const t = (D.res.items.find(i => i.key === k) || {}).stats || {}; return isNum(t.pct_normal) && t.pct_normal < th.res; }).length : 0);
+  return `<div class="mhead"><span class="crumb">My workspace · ${esc(role.short)}</span><h1>${hello()}${WS.name ? ', ' + esc(WS.name.split(' ')[0]) : ''}.</h1><div class="kente thin"></div></div>
+  <div class="panel wstop"><div><h2>${nAl ? `${nAl} of your ${WS.areas.length + WS.reservoirs.length} watched places need attention` : `All ${WS.areas.length + WS.reservoirs.length} watched places are within your thresholds`}</h2>
+    <p class="note">${D.meta.year} season · rainfall to ${fmtDate(D.meta.rain_latest)} · updated every Monday. Alerts use your thresholds: SPI-3 ≤ ${th.spi}, VCI &lt; ${th.vci}, risk ≥ ${th.risk}${WS.reservoirs.length ? `, reservoirs &lt; ${th.res}% of usual` : ''}.</p></div>
+    <div class="wsbtns"><button type="button" class="btn" id="wsEdit">Edit</button><button type="button" class="btn" id="wsCsv">Download data (CSV)</button><button type="button" class="btn" id="wsExp">Export</button><label class="btn">Import<input type="file" id="wsImp" accept="application/json,.json" hidden></label></div></div>
+  <div class="wsgrid">${cards}${resCards}</div>
+  <section class="panel"><h2 style="font-size:20px">Useful for ${esc(role.short.toLowerCase())}</h2><div class="wslinks">${role.focus.map(([m, s, l]) => `<button type="button" class="wslink" data-go="${m}:${s}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${ICON[m]}</svg>${esc(l)}</button>`).join('')}<button type="button" class="wslink" data-go="report:"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${ICON.report}</svg>Print a report</button></div></section>
+  <p class="disclaimer">Saved in this browser on ${fmtDate((WS.updated || WS.created || '').slice(0, 10))}. Clearing your browser data deletes it, so export a copy. <button type="button" class="linkb" id="wsDel">Delete workspace</button></p>`;
+}
+function afterWs() {
+  if (!WS || state.wsEdit) { afterWsSetup(); return; }
+  const pick = v => { const [level, key] = v.split(':'); if (level === 'district') { state.district = key; state.region = (sumUnit('district', key) || {}).region || state.region; } else { state.region = key; state.district = null; } state.year = D.meta.year; save(); syncPickers(); };
+  $$('[data-open]').forEach(b => b.onclick = () => { pick(b.dataset.open); location.hash = 'overview'; });
+  $$('[data-rep]').forEach(b => b.onclick = () => { pick(b.dataset.rep); REP.scope = 'unit'; store.set('agrointel.report', REP); location.hash = 'report'; });
+  $$('[data-resopen]').forEach(b => b.onclick = () => { const it = D.res.items.find(i => i.key === b.dataset.resopen); state.res = it.key; if (it.region) { state.region = it.region; state.district = null; } state.sub.water = 'res'; save(); syncPickers(); location.hash = 'water'; });
+  $$('[data-go]').forEach(b => b.onclick = () => { const [m, s] = b.dataset.go.split(':'); const a = WS.areas[0]; if (a) pick(a.level + ':' + a.key); if (s) state.sub[m] = s; save(); location.hash = m; });
+  $('#wsEdit').onclick = () => { state.wsEdit = true; renderView('workspace'); };
+  $('#wsExp').onclick = () => download(`agrointel-workspace-${new Date().toISOString().slice(0, 10)}.json`, JSON.stringify(WS, null, 2), 'application/json');
+  $('#wsImp').onchange = e => { const f = e.target.files[0]; if (!f) return; const rd = new FileReader();
+    rd.onload = () => { try { const w = JSON.parse(rd.result); if (!w || !ROLES[w.role] || !Array.isArray(w.areas)) throw new Error('not a workspace file');
+      WS = { ...w, areas: w.areas.filter(a => a && (a.level === 'region' ? summary(a.key) : sumUnit('district', a.key))).slice(0, 12), reservoirs: Array.isArray(w.reservoirs) ? w.reservoirs : [] }; wsSave(); renderView('workspace');
+    } catch (err) { alertBox(`Could not import: ${err.message}.`); } }; rd.readAsText(f); };
+  $('#wsCsv').onclick = () => {
+    const rows = [['level', 'key', 'name', 'region', 'year', 'rain_anomaly_pct', 'vci', 'spi3', 'risk_composite', 'risk_drought', 'risk_flood', 'status']];
+    WS.areas.forEach(a => { const u = a.level === 'district' ? sumUnit('district', a.key) : sumUnit('region', a.key); if (!u) return;
+      Object.entries(u.years).sort().forEach(([y, b]) => rows.push([a.level, a.key, u.name, u.region, y, b.rain_anom, b.vci, b.spi3, b.risk && b.risk.composite, b.risk && b.risk.drought, b.risk && b.risk.flood, b.status])); });
+    let csv = rows.map(r => r.map(v => v == null ? '' : /[",\n]/.test(String(v)) ? `"${String(v).replace(/"/g, '""')}"` : v).join(',')).join('\n');
+    if (D.res && WS.reservoirs.length) { csv += '\n\nreservoir,month,area_km2\n' + WS.reservoirs.flatMap(k => { const it = D.res.items.find(i => i.key === k); return it ? Object.entries(it.series).map(([ym, v]) => `${it.name},${ym},${v}`) : []; }).join('\n'); }
+    download(`agrointel-data-${new Date().toISOString().slice(0, 10)}.csv`, csv + `\n\n# Source: AgroIntel Africa (${location.host}${location.pathname}), indicators from CHIRPS, MODIS, ERA5-Land, Sentinel-1; not field-validated.\n`, 'text/csv');
+  };
+  $('#wsDel').onclick = e => { if (e.target.dataset.armed) { WS = null; try { localStorage.removeItem(WS_KEY); } catch (x) { /* storage unavailable */ } renderView('workspace'); } else { e.target.dataset.armed = '1'; e.target.textContent = 'Click again to delete'; } };
+}
+function download(name, text, type) { const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([text], { type })); a.download = name; document.body.appendChild(a); a.click(); setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 500); }
+function alertBox(msg) { const p = document.createElement('p'); p.className = 'note warnline'; p.textContent = msg; $('#view').prepend(p); setTimeout(() => p.remove(), 6000); }
 
 function syncPickers() {
   $('#region').value = state.region;
