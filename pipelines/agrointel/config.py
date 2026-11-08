@@ -30,7 +30,10 @@ DS = {
     "hansen": "UMD/hansen/global_forest_change_2025_v1_13",  # band: lossyear (1-25 = 2001-2025)
     "worldcover": "ESA/WorldCover/v200",                # 10 m land cover, 2021; class 40 = cropland
     "isda": "ISDASOIL/Africa/v1",                       # iSDAsoil 30 m soil predictions (prefix)
+    "burned": "MODIS/061/MCD64A1",                      # burned area, 500 m monthly, band BurnDate (day of year)
+    "modis_lc": "MODIS/061/MCD12Q1",                    # land cover, 500 m annual; LC_Type1 12 cropland, 14 mosaic
 }
+HANSEN_LAST_YEAR = 2025         # last loss year in the Hansen version above
 
 # Farmland-only vegetation: a 250 m MODIS pixel counts as farmland when at least this
 # share of its 10 m WorldCover pixels is cropland; a unit switches to farmland-only

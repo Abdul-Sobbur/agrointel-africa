@@ -28,7 +28,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from agrointel import analysis as A  # noqa: E402
 from agrointel import earth as E  # noqa: E402
-from agrointel.config import (CACHE_DIR, CROPLAND_MIN_PCT, DISTRICTS_GEOJSON, FARMS_GEOJSON,  # noqa: E402
+from agrointel.config import (CACHE_DIR, CROPLAND_MIN_PCT, HANSEN_LAST_YEAR, DISTRICTS_GEOJSON, FARMS_GEOJSON,  # noqa: E402
                               FIRST_YEAR, HISTORY_BUDGET_MIN, LANDCOVER, RESERVOIR_BASE, RESERVOIR_FIRST_YEAR, RESERVOIRS, NDVI_BASE_START, NORMAL_END,
                               NORMAL_START, REGIONS, REGIONS_GEOJSON, SEASON_BASE, TEMP_TREND_START, WEB_DATA)
 
@@ -166,6 +166,22 @@ def fetch_level(level, geo, keys, regimes, year, last_month, latest, nyear, nmon
                                  nyear, nmonth, rebuild)
     out["land"] = static_cache(f"landcover{sfx}.json", f"{level} land cover", E.land_cover, fc, rebuild)
     out["soil"] = static_cache(f"soil{sfx}.json", f"{level} soil", E.soil_stats, fc, rebuild)
+    loss = {} if rebuild else load(f"forest_loss{sfx}.json")
+    if not loss or loss.get("_last") != HANSEN_LAST_YEAR:
+        got = soft(f"{level} forest loss", E.forest_loss, fc, HANSEN_LAST_YEAR, default={})
+        if got:
+            loss = {**got, "_last": HANSEN_LAST_YEAR}
+            save(f"forest_loss{sfx}.json", loss)
+    out["loss"] = loss
+    out["crop_trend"] = static_cache(f"cropland_modis{sfx}.json", f"{level} cropland trend", E.cropland_trend, fc, rebuild)
+    burned, burned_to = soft(f"{level} burned area", E.burned_area, fc, FIRST_YEAR, year, default=({}, None))
+    log.info("%s burned area: %d units, data to %s", level, len(burned), burned_to)
+    if burned:
+        save(f"burned{sfx}.json", {"data": burned, "to": burned_to})
+    else:
+        cached = load(f"burned{sfx}.json")
+        burned, burned_to = cached.get("data", {}), cached.get("to")
+    out["burned"], out["burned_to"] = burned, burned_to
     out["ndvi_crop"] = update_monthly(fc, keys, f"ndvi_monthly_crop{sfx}.json", E.ndvi_crop_monthly_year,
                                       NDVI_BASE_START, nyear, nmonth, rebuild)
     log.info("%s temperature", level)
@@ -180,6 +196,20 @@ def fetch_level(level, geo, keys, regimes, year, last_month, latest, nyear, nmon
     log.info("%s water %s-%02d", level, wy, wm)
     out["water"] = soft(f"{level} water", E.water_areas, fc, wy, wm, default={})
     return out
+
+
+def land_change(k, data, year):
+    """Annual forest loss, burned area and cropland area for one unit."""
+    lo, bu, ct = data["loss"].get(k, {}), data["burned"].get(k, {}), data["crop_trend"].get(k, {})
+    loss = {str(y): r(lo.get(f"y{y}"), 2) for y in range(2001, HANSEN_LAST_YEAR + 1) if lo.get(f"y{y}") is not None}
+    burned = {str(y): r(bu.get(f"y{y}"), 1) for y in range(FIRST_YEAR, year + 1) if bu.get(f"y{y}") is not None}
+    cyears = sorted({int(c[1:]) for c in ct if c[0] in "cm" and c[1:].isdigit()})
+    crop = {str(y): r(ct.get(f"c{y}"), 1) for y in cyears}
+    mosaic = {str(y): r(ct.get(f"m{y}"), 1) for y in cyears}
+    if not (loss or burned or crop):
+        return None
+    return {"forest2000_km2": r(lo.get("forest2000"), 1), "forest_loss_km2": loss, "loss_last_year": HANSEN_LAST_YEAR,
+            "burned_km2": burned, "burned_to": data.get("burned_to"), "cropland_km2": crop, "mosaic_km2": mosaic}
 
 
 # ---------------------------------------------------------------- reservoirs
@@ -271,7 +301,8 @@ def build_unit(k, data, regime, forest, year, last_month, latest, wy, wm):
     crop_pct = (lc.get("c40") or 0) / land_km2 * 100 if land_km2 else None
     land = {"pct": {LANDCOVER[int(c[1:])]: r((v or 0) / sum(x or 0 for x in lc.values()) * 100, 1)
                     for c, v in lc.items()} if lc else {}, "cropland_pct": r(crop_pct, 1),
-            "cropland_km2": r(lc.get("c40"), 0), "source": "ESA WorldCover 2021"}
+            "cropland_km2": r(lc.get("c40"), 0), "area_km2": r(sum(v or 0 for v in lc.values()), 0),
+            "source": "ESA WorldCover 2021"}
 
     all_ser = as_tuple_series(data["ndvi"].get(k, {}))
     crop_ser = as_tuple_series(data["ndvi_crop"].get(k, {}))
@@ -364,7 +395,7 @@ def build_unit(k, data, regime, forest, year, last_month, latest, wy, wm):
         "ndvi_normal": [r(v, 3) for v in nnorm], "ndvi_trend_decade": r(ntrend, 3), "ndvi_basis": ndvi_basis,
         "water": {"month": f"{wy}-{wm:02d}", "current_km2": r(w.get("current"), 1), "normal_km2": r(wnorm, 1),
                   "pct": r(wpct, 0), "permanent_km2": r(w.get("permanent"), 1)},
-        "suitability": suit, "soil": soil, "land": land,
+        "suitability": suit, "soil": soil, "land": land, "change": land_change(k, data, year),
     }
     return static, years
 

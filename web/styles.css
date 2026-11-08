@@ -192,8 +192,8 @@ button,select,input{font:inherit;color:inherit}
 .rail{position:fixed;left:0;right:0;bottom:0;z-index:1200;background:var(--surface);border-top:1px solid var(--line);
   padding-bottom:env(safe-area-inset-bottom,0px);padding-left:max(4px,env(safe-area-inset-left,0px));padding-right:max(4px,env(safe-area-inset-right,0px))}
 .rail .brand,.rail .foot{display:none}
-.rail nav{display:grid;grid-template-columns:repeat(7,minmax(0,1fr))}
-@media (max-width:420px){.nv{font-size:10px}}
+.rail nav{display:grid;grid-template-columns:repeat(8,minmax(0,1fr))}
+@media (max-width:480px){.nv{font-size:9.5px;letter-spacing:-.01em}.nv svg{width:20px;height:20px}}
 .nv{border:0;background:none;cursor:pointer;display:grid;justify-items:center;gap:2px;padding:9px 2px 8px;color:var(--muted);font-size:11px;font-weight:600;position:relative;text-decoration:none}
 .nv svg{width:22px;height:22px}
 .nv[aria-current="page"]{color:var(--accent)}
@@ -473,3 +473,20 @@ form.reg{display:grid;gap:12px;grid-template-columns:repeat(auto-fit,minmax(180p
 .wslink:hover{border-color:var(--accent)}
 .wslink svg{width:22px;height:22px;flex:none;color:var(--accent)}
 .ths .rf{align-content:end}
+
+/* compare */
+.cmpbar{display:flex;flex-wrap:wrap;gap:12px 20px;align-items:center;margin-bottom:16px}
+.cmpsel{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.cmpsel small{color:var(--muted);font-size:12px}
+.sw{display:inline-block;width:12px;height:12px;border-radius:3px;margin-right:6px;vertical-align:-1px;flex:none}
+.cmptab td:first-child{color:var(--muted);font-weight:600}
+.cmptab{min-width:520px;font-size:14px}
+.cmpkey{display:flex;gap:16px;flex-wrap:wrap;font-size:13px;color:var(--muted);margin-top:6px}
+.cmpkey i{display:inline-block;width:12px;height:10px;border-radius:2px;margin-right:6px}
+.cmpkey i.dash{border-top:2px dashed var(--muted);height:0;border-radius:0}
+#cmpOut{display:grid;gap:16px}
+.m-fire{fill:#D9531E}
+.chh{font-size:16px;margin-bottom:6px}
+.cmpsel{min-width:0;max-width:100%}
+.cmpsel .pick{min-width:0;max-width:100%;flex:1 1 220px}
+.cmp2{display:grid;gap:16px;grid-template-columns:repeat(auto-fit,minmax(min(100%,380px),1fr))}

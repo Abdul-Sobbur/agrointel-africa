@@ -36,7 +36,7 @@ function asView(U, y) {
     rain: { ...b.rain, normal: U.rain_normal, annual_normal: U.annual_normal, spi3_latest: b.rain.spi3_ref, latest_date: cur ? U.latest_date : `${y}-12-31` },
     season: { ...b.season, onset_normal_doy: sn.onset_doy, cessation_normal_doy: sn.cessation_doy, los_normal: sn.los, rainy_days_normal: sn.rainy_days, dry_spells_normal: sn.dry_spells },
     temp: U.temp, ndvi: { year: Number(y), ...b.ndvi, normal: U.ndvi_normal, trend_decade: U.ndvi_trend_decade },
-    water: U.water, balance: b.balance, suitability: U.suitability, soil: U.soil, land: U.land, ndviBasis: U.ndvi_basis, risk: b.risk, status: b.status };
+    water: U.water, change: U.change, balance: b.balance, suitability: U.suitability, soil: U.soil, land: U.land, ndviBasis: U.ndvi_basis, risk: b.risk, status: b.status };
 }
 
 /* ---------------- state ---------------- */
@@ -145,6 +145,7 @@ const ICON = {
   risk: '<path d="M12 4l9 16H3z M12 10v4.5 M12 17.2v.3"/>',
   farms: '<path d="M4 8l7-4 9 5-2 11-12-2z"/>',
   report: '<path d="M7 3h7l4 4v14H7z M14 3v4h4 M10 12h5 M10 16h5"/>',
+  compare: '<path d="M4 20V9 M9 20V4 M15 20v-8 M20 20V7"/>',
   workspace: '<path d="M12 12a4 4 0 1 0 0-8 4 4 0 0 0 0 8z M4 21c0-4 3.6-6.5 8-6.5s8 2.5 8 6.5"/>'
 };
 const MODS = {
@@ -155,8 +156,8 @@ const MODS = {
     items: ['Rainfall vs 1991–2020 normal', 'Monthly anomalies', 'Temperature trend since 1996', 'Drought (SPI-3)', 'Onset, cessation, dry spells'] },
   water: { n: 'Water', full: 'Water intelligence', col: 'water', ltr: 'C', subs: [['surface', 'Surface water'], ['res', 'Reservoirs'], ['stress', 'Water stress']],
     items: ['Surface water from radar', 'Reservoir levels: Tono, Vea, Bontanga, Weija, Bui, Volta…', 'Extent vs 2017–2021 baseline', 'Water balance (rain − PET)', 'Aridity index'] },
-  risk: { n: 'Risk', full: 'Agricultural risk', col: 'red', ltr: 'D', subs: [['summary', 'Risk summary'], ['map', 'Vegetation anomaly map']],
-    items: ['Drought exposure', 'Flood exposure', 'Land degradation trend', 'Production risk'] },
+  risk: { n: 'Risk', full: 'Agricultural risk', col: 'red', ltr: 'D', subs: [['summary', 'Risk summary'], ['map', 'Vegetation anomaly map'], ['change', 'Land change and fires']],
+    items: ['Drought exposure', 'Flood exposure', 'Land degradation trend', 'Production risk', 'Forest loss, fires and cropland change'] },
   farms: { n: 'Farms', full: 'Farm management', col: 'kblack', ltr: 'E', subs: [['trace', 'Map a farm'], ['list', 'Monitored farms']],
     items: ['Trace boundaries on imagery', 'Area and perimeter', 'Sentinel-2 field monitoring', 'Forest-loss check since 2021'] }
 };
@@ -262,12 +263,12 @@ function buildLanding() {
 }
 
 function renderNav(mod) {
-  $('#nav').innerHTML = [['workspace', { n: 'My workspace' }], ...Object.entries(MODS), ['report', { n: 'Report' }]].map(([k, m]) => `<a class="nv${k === 'workspace' ? ' nv-ws' : ''}" href="#${k}"${mod === k ? ' aria-current="page"' : ''}><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${ICON[k]}</svg>${m.n}</a>`).join('');
+  $('#nav').innerHTML = [['workspace', { n: 'My workspace' }], ...Object.entries(MODS), ['compare', { n: 'Compare' }], ['report', { n: 'Report' }]].map(([k, m]) => `<a class="nv${k === 'workspace' ? ' nv-ws' : ''}" href="#${k}"${mod === k ? ' aria-current="page"' : ''}><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${ICON[k]}</svg>${m.n}</a>`).join('');
 }
 
 async function route() {
   const h = location.hash.slice(1);
-  const inApp = !!MODS[h] || h === 'methods' || h === 'report' || h === 'workspace';
+  const inApp = !!MODS[h] || h === 'methods' || h === 'report' || h === 'workspace' || h === 'compare';
   if (h !== 'workspace') state.wsEdit = false;
   document.body.classList.toggle('reporting', h === 'report');
   $('#home').hidden = inApp; $('#app').hidden = !inApp;
@@ -284,6 +285,7 @@ async function renderView(mod) {
   const view = $('#view');
   if (mod === 'methods') { view.innerHTML = methodsView(); return; }
   if (mod === 'report') { await reportView(); return; }
+  if (mod === 'compare') { await compareView(); return; }
   if (mod === 'workspace') { view.innerHTML = wsView(); afterWs(); window.scrollTo(0, 0); return; }
   if (mod === 'overview') { view.innerHTML = overview(); afterOverview(); return; }
   view.innerHTML = '<p class="loading">Loading…</p>';
@@ -436,6 +438,43 @@ VIEWS.crop.soil = R => { const s = R.soil, L = R.land || {};
       <div class="row soilrow"><span class="nm">Texture (most common)</span><span class="sc">${esc(s.texture.name || '–')}</span></div></div>
     <p class="note">iSDAsoil (Innovative Solutions for Decision Agriculture), 30 m machine-learning predictions from about 100,000 soil samples, representing 2001–2017. These are modelled estimates, not lab tests: test a field's soil before buying lime or fertiliser.</p></div>
     ${landHtml}</div>`); };
+
+function yearBars(ser, o) {
+  const ys = Object.keys(ser).map(Number).sort((a, b) => a - b); if (!ys.length) return '<p class="note">No data yet.</p>';
+  const W = o.w || 720, H = o.h || 190, L = 44, R = 8, T = 12, B = 22, iw = W - L - R, ih = H - T - B, vals = ys.map(y => ser[y]);
+  const mx = niceMax(Math.max(...vals.filter(isNum), o.ref || 0) * 1.05 || 1), band = iw / ys.length; let s = '';
+  for (let k = 0; k <= 2; k++) { const v = mx * k / 2, y = T + ih - ih * k / 2; s += `<line class="grid-l" x1="${L}" x2="${W - R}" y1="${y}" y2="${y}"/><text class="ax" x="${L - 5}" y="${y + 3}" text-anchor="end">${v >= 100 ? Math.round(v) : fx(v, v < 10 ? 1 : 0)}</text>`; }
+  ys.forEach((y, i) => { const v = ser[y]; if (!isNum(v)) return; const h = ih * v / mx, x = L + band * i;
+    s += `<rect x="${(x + band * .15).toFixed(1)}" y="${(T + ih - h).toFixed(1)}" width="${(band * .7).toFixed(1)}" height="${Math.max(h, .6).toFixed(1)}" rx="1.5" class="${o.cls}"${y === o.hi ? ' style="opacity:1"' : ''} ${o.partial === y ? 'opacity=".45"' : ''}><title>${y}: ${fx(v, v < 10 ? 2 : 0)} km²</title></rect>`;
+    if (i % (ys.length > 16 ? 5 : 2) === 0 || i === ys.length - 1) s += `<text class="ax" x="${(x + band / 2).toFixed(1)}" y="${H - 7}" text-anchor="middle">${y}</text>`; });
+  if (o.ref) { const y = T + ih - ih * o.ref / mx; s += `<line x1="${L}" x2="${W - R}" y1="${y.toFixed(1)}" y2="${y.toFixed(1)}" stroke="var(--muted)" stroke-dasharray="4 3" stroke-width="1.3"/>`; }
+  s += `<text class="ax" x="${L}" y="${T - 3}">km²</text>`;
+  return svg(W, H, s, o.title);
+}
+function changeFacts(R) {
+  const c = R.change; if (!c) return null;
+  const loss = Object.values(c.forest_loss_km2 || {}).filter(isNum), lossTot = loss.reduce((a, b) => a + b, 0);
+  const lossYs = Object.keys(c.forest_loss_km2 || {}), lastLoss = c.forest_loss_km2[lossYs[lossYs.length - 1]];
+  const recent = lossYs.slice(-5).map(y => c.forest_loss_km2[y]).filter(isNum), early = lossYs.slice(0, 5).map(y => c.forest_loss_km2[y]).filter(isNum);
+  const bYs = Object.keys(c.burned_km2 || {}).sort(), base = bYs.filter(y => y <= '2020').map(y => c.burned_km2[y]).filter(isNum);
+  const bAvg = base.length ? base.reduce((a, b) => a + b, 0) / base.length : null;
+  const land = R.land && R.land.area_km2;
+  const cy = Object.keys(c.cropland_km2 || {}).sort(), c0 = cy.length ? (c.cropland_km2[cy[0]] || 0) + (c.mosaic_km2[cy[0]] || 0) / 2 : null, c1 = cy.length ? (c.cropland_km2[cy[cy.length - 1]] || 0) + (c.mosaic_km2[cy[cy.length - 1]] || 0) / 2 : null;
+  return { c, lossTot, lastLoss, lossYear: lossYs[lossYs.length - 1], lossPct: c.forest2000_km2 > 1 ? lossTot / c.forest2000_km2 * 100 : null,
+    speeding: recent.length && early.length ? (recent.reduce((a, b) => a + b, 0) / recent.length) / Math.max(.01, early.reduce((a, b) => a + b, 0) / early.length) : null,
+    bAvg, bYs, land, cy, c0, c1 };
+}
+VIEWS.risk.change = R => {
+  const F = changeFacts(R); if (!F) return P(verdict(chip('Not yet', 'neu'), 'Land change data appears after the next pipeline run', ''));
+  const { c } = F, by = String(R.year), bThis = c.burned_km2[by], partial = R.isCurrent && c.burned_to && !c.burned_to.endsWith('-12');
+  const head = F.lossPct != null && F.lossPct >= 5 ? `${fx(F.lossPct, 0)}% of the 2000 tree cover has been lost since 2001` : F.bAvg && F.land && F.bAvg / F.land > .1 ? `Fire burns about ${fx(F.bAvg / F.land * 100, 0)}% of the land in a typical year` : 'Land cover has changed little here since 2001';
+  return P(`${verdict(chip(F.speeding > 1.5 ? 'Forest loss speeding up' : F.lossPct >= 5 ? 'Forest loss' : 'Change', F.speeding > 1.5 || F.lossPct >= 10 ? 'warn' : 'mod'), head, `${esc(R.name)}: forest loss from Hansen Global Forest Change (30 m, to ${c.loss_last_year}), burned area from MODIS (500 m, to ${ymTxt(c.burned_to)}), cropland from MODIS land cover (500 m, to ${F.cy[F.cy.length - 1] || '–'}).`)}
+    <div class="facts">${fact('Tree cover lost since 2001', fx(F.lossTot, F.lossTot < 10 ? 1 : 0) + ' km²', isNum(F.lossPct) ? `${fx(F.lossPct, 1)}% of ${fx(c.forest2000_km2)} km² in 2000` : '')}${fact(`Lost in ${F.lossYear}`, fx(F.lastLoss, F.lastLoss < 10 ? 1 : 0) + ' km²', isNum(F.speeding) ? `last 5 years ${F.speeding >= 1 ? fx(F.speeding, 1) + '× ' + 'the first 5' : 'below the first 5'}` : '')}${fact(`Burned in ${R.year}`, isNum(bThis) ? fx(bThis) + ' km²' : '–', isNum(F.bAvg) ? `usual ${fx(F.bAvg)} km²${partial ? ' · year not over' : ''}` : '')}${fact('Cropland change', isNum(F.c0) && F.c0 > 0 ? sgn((F.c1 / F.c0 - 1) * 100) + '%' : '–', F.cy.length ? `${F.cy[0]}–${F.cy[F.cy.length - 1]}` : '')}</div>
+    <div><h3 class="chh">Tree-cover loss per year</h3>${yearBars(c.forest_loss_km2, { cls: 'm-dry', title: 'Tree-cover loss per year' })}</div>
+    <div><h3 class="chh">Area burned per year</h3>${yearBars(c.burned_km2, { cls: 'm-fire', ref: F.bAvg, partial: partial ? R.year : null, title: 'Area burned per year' })}<p class="note">Dashed line: 2001–2020 average. ${partial ? `${R.year} covers January to ${ymTxt(c.burned_to)} only. ` : ''}Most burning in Ghana happens in the dry season (November to March), much of it to clear land or for hunting.</p></div>
+    <div><h3 class="chh">Cropland area per year</h3>${yearBars(Object.fromEntries(F.cy.map(y => [y, (c.cropland_km2[y] || 0) + (c.mosaic_km2[y] || 0) / 2])), { cls: 'm-act', title: 'Cropland area per year' })}<p class="note">Cropland plus half of the cropland–natural vegetation mosaic class. At 500 m, small farms in bush or tree crops such as cocoa are often missed, so read the trend rather than the total.</p></div>
+    <p class="note">Mining scars are not yet mapped separately; in mining areas they show up within forest loss.</p>`);
+};
 
 VIEWS.crop.season = R => { const s = R.season, od = s.onset && isNum(s.onset_normal_doy) ? doyOf(s.onset) - s.onset_normal_doy : null;
   const txt = `Rainfall is ${fx(Math.abs(R.rain.anomaly_pct))}% ${R.rain.anomaly_pct >= 0 ? 'above' : 'below'} normal from January to ${MONTH[R.rain.last_month - 1]}. ` +
@@ -656,6 +695,7 @@ function methodsView() {
       <li><strong>Water:</strong> Sentinel-1 radar (VV backscatter below −16 dB) within the JRC Global Surface Water maximum extent; JRC occurrence for permanent water.</li>
       <li><strong>Forest:</strong> Hansen Global Forest Change v1.13 (tree cover 2000, loss year to 2025).</li>
       <li><strong>Land cover:</strong> ESA WorldCover 2021 v200, 10 m (CC BY 4.0).</li>
+      <li><strong>Land change and fires:</strong> Hansen Global Forest Change (tree-cover loss per year), MODIS MCD64A1 burned area (500 m, monthly), MODIS MCD12Q1 land cover (500 m, annual) for cropland.</li>
       <li><strong>Reservoirs:</strong> outlines from the JRC Global Surface Water maximum extent (1984–2021); monthly water area from Sentinel-1 radar since 2015.</li>
       <li><strong>Soil:</strong> iSDAsoil Africa v1, 30 m topsoil predictions (CC BY 4.0).</li>
       <li><strong>Boundaries:</strong> geoBoundaries for Ghana's 16 regions and 260 districts (2019 set, CC BY 4.0).</li>
@@ -686,7 +726,7 @@ function methodsView() {
 /* ---------------- boot ---------------- */
 /* ---------------- report builder ---------------- */
 const RSECT = [['rain', 'Rainfall and drought'], ['season', 'Rainy season timing'], ['veg', 'Vegetation condition'], ['soil', 'Soil and land'],
-  ['crops', 'Crop suitability'], ['water', 'Water'], ['res', 'Reservoirs'], ['risk', 'Agricultural risk'], ['table', 'Area breakdown table']];
+  ['crops', 'Crop suitability'], ['water', 'Water'], ['res', 'Reservoirs'], ['change', 'Land change and fires'], ['risk', 'Agricultural risk'], ['table', 'Area breakdown table']];
 const RDEF = { scope: 'unit', sections: RSECT.map(s => s[0]), title: '', ref: '', forOrg: '', byName: '', byRole: '', byOrg: '', byContact: '', notes: '', logo: '', remember: true };
 let REP = Object.assign({}, RDEF, store.get('agrointel.report', {}));
 const andJoin = xs => xs.length > 1 ? xs.slice(0, -1).join(', ') + ' and ' + xs[xs.length - 1] : (xs[0] || '');
@@ -779,6 +819,9 @@ function reportDoc(R) {
     parts.push(sec(n++, 'Water', `<p>Surface water detected by Sentinel-1 radar in ${MONTH[Number(w.month.slice(5)) - 1]} ${w.month.slice(0, 4)}: <b>${fx(w.current_km2, 1)} km²</b>${isNum(w.pct) ? `, ${fx(w.pct)}% of the 2017–2021 average for that month (${fx(w.normal_km2, 1)} km²)` : ''}. Permanent water: ${fx(w.permanent_km2, 1)} km².${R.balance ? ` Annual rainfall is ${fx(R.balance.aridity, 2)} times potential evaporation (aridity index), with ${R.balance.deficit_months} months in water deficit.` : ''}</p>`)); }
   if (on('res') && D.res) { const rk = R.national ? null : R.level === 'district' ? R.region : R.key, rs = D.res.items.filter(i => R.national || i.region === rk);
     if (rs.length) parts.push(sec(n++, 'Reservoirs', `<table class="rtab"><thead><tr><th>Reservoir</th><th>Main use</th><th>Water area</th><th>% of usual</th><th>% of full</th><th>Status</th></tr></thead><tbody>${rs.map(x => { const t = x.stats || {}; return `<tr><td>${esc(x.name)}</td><td>${esc(x.use)}</td><td>${isNum(t.area_km2) ? fx(t.area_km2, t.area_km2 < 100 ? 1 : 0) + ' km²' : '–'}</td><td>${isNum(t.pct_normal) ? t.pct_normal + '%' : '–'}</td><td>${isNum(t.fill_pct) ? t.fill_pct + '%' : '–'}</td><td>${esc(t.status || '–')}</td></tr>`; }).join('')}</tbody></table><p class="rcap">Open-water surface area from Sentinel-1 radar for ${ymTxt(D.res.month)}, against the ${D.res.base[0]}–${D.res.base[1]} average for the same month. Area, not volume.</p>`)); }
+  if (on('change') && !R.national) { const F = changeFacts(R); if (F) { const c = F.c, bThis = c.burned_km2[String(R.year)];
+    parts.push(sec(n++, 'Land change and fires', `<div class="rgrid"><div>${yearBars(c.forest_loss_km2, { cls: 'm-dry', w: 360, h: 170, title: 'Tree-cover loss per year' })}<p class="rcap">Tree-cover loss per year, km² (Hansen GFC).</p></div><div>${yearBars(c.burned_km2, { cls: 'm-fire', ref: F.bAvg, w: 360, h: 170, title: 'Area burned per year' })}<p class="rcap">Area burned per year, km² (MODIS); dashed: 2001–2020 average.</p></div></div>
+      <p>Tree cover lost since 2001: <b>${fx(F.lossTot, 1)} km²</b>${isNum(F.lossPct) ? ` (${fx(F.lossPct, 1)}% of the 2000 forest)` : ''}; ${fx(F.lastLoss, 1)} km² in ${F.lossYear}. Area burned in ${R.year}: <b>${isNum(bThis) ? fx(bThis) + ' km²' : 'no data'}</b>${isNum(F.bAvg) ? ` against a usual ${fx(F.bAvg)} km²` : ''}${R.isCurrent && c.burned_to ? ` (data to ${ymTxt(c.burned_to)})` : ''}. Cropland ${isNum(F.c0) && F.c0 > 0 ? `changed by ${sgn((F.c1 / F.c0 - 1) * 100)}% between ${F.cy[0]} and ${F.cy[F.cy.length - 1]} (MODIS land cover)` : 'trend not available'}.</p>`)); } }
   if (on('risk') && R.risk) parts.push(sec(n++, 'Agricultural risk', `<table class="rtab"><thead><tr><th>Risk</th><th>Score (0–100)</th><th>Level</th></tr></thead><tbody>${[['drought', 'Drought'], ['flood', 'Flood'], ['degradation', 'Land degradation'], ['production', 'Production'], ['composite', 'Composite']].map(([k, l]) => `<tr${k === 'composite' ? ' class="tot"' : ''}><td>${l}</td><td>${fx(R.risk[k])}</td><td>${level(R.risk[k])[0]}</td></tr>`).join('')}</tbody></table><p class="rcap">Transparent indices combining drought index, rainfall, dry spells, surface water, greening trend and vegetation condition. Indicators for discussion, not validated predictions.</p>`));
   if (on('table') && rows) { const feats = R.national ? D.geo.features : (D.dgeo ? D.dgeo.features.filter(f => f.properties.region === (R.level === 'district' ? R.region : R.key)) : []);
     const byKey = Object.fromEntries(rows.map(r => [r.key, r]));
@@ -985,6 +1028,95 @@ function afterWs() {
 }
 function download(name, text, type) { const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([text], { type })); a.download = name; document.body.appendChild(a); a.click(); setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 500); }
 function alertBox(msg) { const p = document.createElement('p'); p.className = 'note warnline'; p.textContent = msg; $('#view').prepend(p); setTimeout(() => p.remove(), 6000); }
+
+/* ---------------- compare: two places or two seasons ---------------- */
+let CMP = Object.assign({ mode: 'places', b: null, yb: null }, store.get('agrointel.compare', {}));
+const CA = '#0C482E', CB = '#E8792B';
+function pairBars(a, b, normal) {
+  const W = 720, H = 220, L = 40, R = 8, T = 12, B = 22, iw = W - L - R, ih = H - T - B;
+  const mx = niceMax(Math.max(1, ...a.filter(isNum), ...b.filter(isNum), ...normal.filter(isNum))), band = iw / 12; let s = '';
+  for (let k = 0; k <= 2; k++) { const v = mx * k / 2, y = T + ih - ih * k / 2; s += `<line class="grid-l" x1="${L}" x2="${W - R}" y1="${y}" y2="${y}"/><text class="ax" x="${L - 5}" y="${y + 3}" text-anchor="end">${Math.round(v)}</text>`; }
+  for (let i = 0; i < 12; i++) { const x = L + band * i;
+    [[a[i], CA, .14], [b[i], CB, .5]].forEach(([v, c, off]) => { if (!isNum(v)) return; const h = ih * v / mx;
+      s += `<rect x="${(x + band * off).toFixed(1)}" y="${(T + ih - h).toFixed(1)}" width="${(band * .34).toFixed(1)}" height="${Math.max(h, .8).toFixed(1)}" rx="1.5" fill="${c}"><title>${MON[i]}: ${fx(v)} mm</title></rect>`; });
+    if (isNum(normal[i])) { const y = T + ih - ih * normal[i] / mx; s += `<line x1="${(x + band * .08).toFixed(1)}" x2="${(x + band * .92).toFixed(1)}" y1="${y.toFixed(1)}" y2="${y.toFixed(1)}" stroke="var(--muted)" stroke-width="1.5" stroke-dasharray="3 2"/>`; }
+    s += `<text class="ax" x="${(x + band / 2).toFixed(1)}" y="${H - 7}" text-anchor="middle">${MON[i]}</text>`; }
+  return svg(W, H, s, 'Monthly rainfall, both sides');
+}
+function pairLines(a, b, o) {
+  const W = o.w || 720, H = o.h || 200, L = 40, R = 12, T = 12, B = 22, iw = W - L - R, ih = H - T - B, all = [...a, ...b].filter(isNum);
+  if (!all.length) return '<p class="note">No data.</p>';
+  const mn = o.min ?? Math.min(...all), mx = o.max ?? Math.max(...all), xs = i => L + iw * i / 11, ys = v => T + ih - (v - mn) / (mx - mn) * ih; let s = '';
+  for (let k = 0; k <= 3; k++) { const v = mn + (mx - mn) * k / 3, y = ys(v); s += `<line class="grid-l" x1="${L}" x2="${W - R}" y1="${y.toFixed(1)}" y2="${y.toFixed(1)}"/><text class="ax" x="${L - 5}" y="${(y + 3).toFixed(1)}" text-anchor="end">${o.fmt(v)}</text>`; }
+  if (o.zero) { const y = ys(0); s += `<line class="zero" x1="${L}" x2="${W - R}" y1="${y.toFixed(1)}" y2="${y.toFixed(1)}"/>`; }
+  [[a, CA], [b, CB]].forEach(([vals, c]) => { let d = '', st = false; vals.forEach((v, i) => { if (!isNum(v)) { st = false; return; } d += (st ? 'L' : 'M') + xs(i).toFixed(1) + ' ' + ys(Math.max(mn, Math.min(mx, v))).toFixed(1); st = true; });
+    if (d) s += `<path d="${d}" fill="none" stroke="${c}" stroke-width="2.4" stroke-linejoin="round"/>`; });
+  MON.forEach((m, i) => s += `<text class="ax" x="${xs(i).toFixed(1)}" y="${H - 7}" text-anchor="middle">${W < 600 ? m[0] : m}</text>`);
+  return svg(W, H, s, o.title);
+}
+const unitOpts = sel => [...D.meta.regions.map(r => [`region:${r.key}`, `${r.name} Region`]),
+  ...(D.sum.district ? [...D.sum.district.units].sort((a, b) => a.name.localeCompare(b.name)).map(u => [`district:${u.key}`, `${u.name} (${(summary(u.region) || {}).name || ''})`]) : [])]
+  .map(([v, l]) => `<option value="${v}"${v === sel ? ' selected' : ''}>${esc(l)}</option>`).join('');
+
+async function compareView() {
+  const view = $('#view'), first = D.meta.first_year || D.meta.year;
+  const aRef = `${curLevel()}:${curKey()}`;
+  if (!CMP.b || CMP.b === aRef) CMP.b = aRef === 'region:northern' ? 'region:upper-east' : 'region:northern';
+  if (!CMP.yb || CMP.yb === state.year) CMP.yb = state.year === 2015 ? D.meta.year : 2015;
+  const yrs = Array.from({ length: D.meta.year - first + 1 }, (_, i) => D.meta.year - i);
+  view.innerHTML = `<div class="mhead"><span class="crumb">Compare</span><h1>Compare ${CMP.mode === 'places' ? 'two places' : 'two seasons'}</h1><div class="kente thin"></div></div>
+    <div class="panel cmpbar"><div class="subs" role="tablist" style="margin:0"><button class="sub" type="button" role="tab" data-mode="places" aria-selected="${CMP.mode === 'places'}">Two places</button><button class="sub" type="button" role="tab" data-mode="seasons" aria-selected="${CMP.mode === 'seasons'}">Two seasons</button></div>
+      <div class="cmpsel"><span class="sw" style="background:${CA}"></span><b>${esc(curLevel() === 'district' ? (sumUnit('district', curKey()) || {}).name : (summary(curKey()) || {}).name + ' Region')}${CMP.mode === 'seasons' ? ', ' + state.year : ''}</b><small>from the selectors at the top</small></div>
+      <div class="cmpsel"><span class="sw" style="background:${CB}"></span>${CMP.mode === 'places' ? `<select class="pick" id="cmpB" aria-label="Second place">${unitOpts(CMP.b)}</select>` : `<select class="pick" id="cmpY" aria-label="Second season">${yrs.map(y => `<option${y === CMP.yb ? ' selected' : ''}>${y}</option>`).join('')}</select>`}</div></div>
+    <div id="cmpOut"><p class="loading">Loading…</p></div>`;
+  $$('[data-mode]').forEach(b => b.onclick = () => { CMP.mode = b.dataset.mode; store.set('agrointel.compare', CMP); compareView(); });
+  const sb = $('#cmpB'); if (sb) sb.onchange = e => { CMP.b = e.target.value; store.set('agrointel.compare', CMP); compareView(); };
+  const sy = $('#cmpY'); if (sy) sy.onchange = e => { CMP.yb = Number(e.target.value); store.set('agrointel.compare', CMP); compareView(); };
+  let A, B;
+  try {
+    const Ua = await unitData(curLevel(), curKey()); A = asView(Ua, state.year);
+    if (CMP.mode === 'places') { const [lv, k] = CMP.b.split(':'); B = asView(await unitData(lv, k), state.year); }
+    else B = asView(Ua, CMP.yb);
+  } catch (e) { $('#cmpOut').innerHTML = `<p class="loading">Could not load (${esc(e.message)}).</p>`; return; }
+  if (!A || !B) { $('#cmpOut').innerHTML = '<p class="loading">No data for one of the two choices.</p>'; return; }
+  const nameOf = R => CMP.mode === 'seasons' ? String(R.year) : R.level === 'district' ? R.name : R.name + ' Region';
+  const sameMonths = A.rain.last_month === B.rain.last_month;
+  const rows = [
+    ['Rainfall total', R => fx(R.rain.total) + ' mm', R => R.rain.total, ' mm', 0],
+    ['Rainfall vs normal', R => sgn(R.rain.anomaly_pct) + '%', R => R.rain.anomaly_pct, ' pts', 0],
+    ['Drought index (SPI-3)', R => `${sgn(R.rain.spi3_latest, 1)} · ${esc(R.rain.spi_class || '')}`, R => R.rain.spi3_latest, '', 1],
+    ['Onset of rains', R => R.season.onset ? fmtDay(R.season.onset) : '–', R => R.season.onset ? doyOf(R.season.onset) : null, ' days', 0],
+    ['End of rains', R => R.season.cessation ? fmtDay(R.season.cessation) : '–', R => R.season.cessation ? doyOf(R.season.cessation) : null, ' days', 0],
+    ['Season length', R => isNum(R.season.los) ? R.season.los + ' days' : '–', R => R.season.los, ' days', 0],
+    ['Rainy days', R => fx(R.season.rainy_days), R => R.season.rainy_days, '', 0],
+    ['Dry spells (7+ days)', R => fx(R.season.dry_spells), R => R.season.dry_spells, '', 0],
+    ['Vegetation condition (VCI)', R => `${fx(R.ndvi.vci)} · ${vciClass(R.ndvi.vci)[0]}`, R => R.ndvi.vci, '', 0],
+    ['Composite risk', R => `${fx(R.risk.composite)} · ${level(R.risk.composite)[0]}`, R => R.risk.composite, '', 0],
+    ['Drought risk', R => fx(R.risk.drought), R => R.risk.drought, '', 0],
+    ['Flood risk', R => fx(R.risk.flood), R => R.risk.flood, '', 0],
+    ['Area burned in the year', R => R.change && isNum(R.change.burned_km2[String(R.year)]) ? fx(R.change.burned_km2[String(R.year)]) + ' km²' : '–', R => R.change && R.change.burned_km2[String(R.year)], ' km²', 0],
+    ['Season status', R => R.status || '–', () => null, '', 0],
+  ];
+  if (CMP.mode === 'places') rows.push(
+    ['Normal annual rainfall', R => fx(R.rain.annual_normal) + ' mm', R => R.rain.annual_normal, ' mm', 0],
+    ['Average temperature', R => fx(R.temp.normal, 1) + ' °C', R => R.temp.normal, ' °C', 1],
+    ['Cropland share', R => R.land && isNum(R.land.cropland_pct) ? fx(R.land.cropland_pct, 0) + '%' : '–', R => R.land && R.land.cropland_pct, ' pts', 0],
+    ['Tree cover lost since 2001', R => { const F = changeFacts(R); return F ? fx(F.lossTot, 1) + ' km²' + (isNum(F.lossPct) ? ` (${fx(F.lossPct, 1)}%)` : '') : '–'; }, R => { const F = changeFacts(R); return F ? F.lossTot : null; }, ' km²', 1],
+    ['Topsoil pH', R => R.soil ? `${fx(R.soil.ph.value, 1)} · ${R.soil.ph.rating}` : '–', R => R.soil && R.soil.ph.value, '', 1],
+    ['Best-suited crops', R => (R.suitability || []).filter(c => c.class === 'S1').map(c => c.name).slice(0, 4).join(', ') || '–', () => null, '', 0]);
+  const diff = (f, u, d) => { const a = f(A), b = f(B); return isNum(a) && isNum(b) ? `${a - b > 0 ? '+' : a - b < 0 ? '−' : ''}${Math.abs(a - b).toFixed(d)}${u}` : ''; };
+  const head = (() => { const a = A.rain.anomaly_pct, b = B.rain.anomaly_pct; if (!isNum(a) || !isNum(b)) return 'Side by side';
+    const wetter = a > b ? nameOf(A) : nameOf(B), gap = Math.abs(a - b);
+    return gap < 5 ? `${esc(nameOf(A))} and ${esc(nameOf(B))} had similar rainfall against normal` : `${esc(wetter)} was ${fx(gap)} points wetter against its normal`; })();
+  $('#cmpOut').innerHTML = `<section class="panel">${verdict('', head, `${!sameMonths ? `Note: ${nameOf(A)} covers January–${MON[A.rain.last_month - 1]} and ${nameOf(B)} January–${MON[B.rain.last_month - 1]}, so totals are not like for like. ` : ''}Differences are ${esc(nameOf(A))} minus ${esc(nameOf(B))}.`)}
+    <div class="rtable"><table class="rtab cmptab"><thead><tr><th>Indicator</th><th><span class="sw" style="background:${CA}"></span>${esc(nameOf(A))}</th><th><span class="sw" style="background:${CB}"></span>${esc(nameOf(B))}</th><th>Difference</th></tr></thead>
+      <tbody>${rows.map(([l, f, n, u, d]) => `<tr><td>${l}</td><td>${f(A)}</td><td>${f(B)}</td><td class="mono">${diff(n, u, d)}</td></tr>`).join('')}</tbody></table></div></section>
+    <section class="panel"><h3 style="font-size:18px">Monthly rainfall</h3>${pairBars(A.rain.monthly, B.rain.monthly, CMP.mode === 'seasons' ? A.rain.normal : [])}
+      <div class="cmpkey"><span><i style="background:${CA}"></i>${esc(nameOf(A))}</span><span><i style="background:${CB}"></i>${esc(nameOf(B))}</span>${CMP.mode === 'seasons' ? '<span><i class="dash"></i>1991–2020 normal</span>' : ''}</div></section>
+    <div class="cmp2"><section class="panel"><h3 style="font-size:18px">Greenness (NDVI)</h3>${pairLines(A.ndvi.monthly, B.ndvi.monthly, { min: 0, max: .9, w: 420, h: 220, fmt: v => fx(v, 2), title: 'NDVI by month' })}</section>
+      <section class="panel"><h3 style="font-size:18px">Drought index (SPI-3)</h3>${pairLines(A.rain.spi3, B.rain.spi3, { min: -3, max: 3, w: 420, h: 220, zero: true, fmt: v => (v > 0 ? '+' : '') + v, title: 'SPI-3 by month' })}</section></div>
+    <p class="disclaimer">Indicators are computed automatically from open satellite and climate data and have not been validated in the field.</p>`;
+}
 
 function syncPickers() {
   $('#region').value = state.region;

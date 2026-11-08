@@ -154,6 +154,34 @@ class FakeEarth(SimpleNamespace):
             out[k] = row
         return out
 
+    def forest_loss(self, fc, last):
+        out = {}
+        for k, g in _units(fc):
+            forest = (1200 if REGIONS[g]["forest"] else 120) * (0.5 + _rng(k, "f").random())
+            row = {f"y{y}": forest * (0.002 + 0.006 * (y - 2000) / 25) * (0.6 + 0.8 * _rng(k, y, "fl").random()) for y in range(2001, last + 1)}
+            row["forest2000"] = forest
+            out[k] = row
+        return out
+
+    def burned_area(self, fc, first, last):
+        out = {}
+        for k, g in _units(fc):
+            land = 800 + 4000 * _rng(k, "lc").random(4)[0]
+            share = 0.32 if REGIONS[g]["regime"] == "uni" else 0.06
+            out[k] = {f"y{y}": land * share * (0.7 + 0.6 * _rng(k, y, "b").random()) * (0.6 if y == last else 1) for y in range(first, last + 1)}
+        return out, f"{last}-08"
+
+    def cropland_trend(self, fc):
+        out = {}
+        for k, g in _units(fc):
+            base = (900 if REGIONS[g]["regime"] == "uni" else 250) * (0.5 + _rng(k, "ct").random())
+            row = {}
+            for y in range(2001, 2025):
+                row[f"c{y}"] = base * (1 + 0.012 * (y - 2001)) * (0.95 + 0.1 * _rng(k, y, "c").random())
+                row[f"m{y}"] = base * 0.8 * (1 + 0.006 * (y - 2001))
+            out[k] = row
+        return out
+
     def era5_annual_temps(self, fc, first, last):
         res = {}
         for k, g in _units(fc):

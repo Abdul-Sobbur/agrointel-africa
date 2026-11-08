@@ -376,3 +376,38 @@ def reservoir_monthly(shapes: dict, keys: list[str], year: int, last_month: int,
                 res[k][f"m{m:02d}"] = None
     return res
 
+
+
+# ---------------------------------------------------------------- land change and fires
+def forest_loss(fc, last_year: int) -> dict[str, dict]:
+    """Hansen tree-cover loss (km2) per year 2001-last_year, plus 2000 forest area (canopy >= 30%)."""
+    gfc, area = ee.Image(DS["hansen"]), ee.Image.pixelArea().divide(1e6)
+    forest = gfc.select("treecover2000").gte(30)
+    ly = gfc.select("lossyear")
+    bands = [ly.eq(y - 2000).And(forest).multiply(area).rename(f"y{y}") for y in range(2001, last_year + 1)]
+    bands.append(forest.multiply(area).rename("forest2000"))
+    return _reduce(ee.Image.cat(bands), fc, scale=30, reducer=ee.Reducer.sum(), tile_scale=16)
+
+
+def burned_area(fc, first: int, last: int) -> tuple[dict[str, dict], str | None]:
+    """Area burned at least once in each calendar year (km2), MODIS MCD64A1, and the last month covered."""
+    col = ee.ImageCollection(DS["burned"]).select("BurnDate")
+    area = ee.Image.pixelArea().divide(1e6)
+    bands = [_safe(col.filterDate(f"{y}-01-01", f"{y + 1}-01-01"), f"y{y}", "max").gt(0).multiply(area).rename(f"y{y}")
+             for y in range(first, last + 1)]
+    latest = col.aggregate_max("system:time_start").getInfo()
+    last_month = dt.datetime.fromtimestamp(latest / 1000, dt.timezone.utc).strftime("%Y-%m") if latest else None
+    return _reduce(ee.Image.cat(bands), fc, scale=500, reducer=ee.Reducer.sum(), tile_scale=4), last_month
+
+
+def cropland_trend(fc) -> dict[str, dict]:
+    """MODIS land cover cropland (class 12) and cropland/natural mosaic (class 14) area (km2) per year."""
+    col = ee.ImageCollection(DS["modis_lc"]).select("LC_Type1")
+    years = [int(y) for y in col.aggregate_array("system:index").map(lambda i: ee.String(i).slice(0, 4)).getInfo()]
+    area = ee.Image.pixelArea().divide(1e6)
+    bands = []
+    for y in years:
+        img = col.filterDate(f"{y}-01-01", f"{y + 1}-01-01").first()
+        img = ee.Image(img)
+        bands += [img.eq(12).multiply(area).rename(f"c{y}"), img.eq(14).multiply(area).rename(f"m{y}")]
+    return _reduce(ee.Image.cat(bands), fc, scale=500, reducer=ee.Reducer.sum(), tile_scale=4)
