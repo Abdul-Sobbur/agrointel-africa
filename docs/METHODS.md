@@ -4,7 +4,7 @@
 
 | Theme | Dataset (Earth Engine ID) | Resolution | Used for |
 | --- | --- | --- | --- |
-| Rainfall | CHIRPS v3 daily (`UCSB-CHC/CHIRPS/V3/DAILY_SAT`) | ~5.5 km, daily, 1981– | Monthly totals, anomalies, SPI, onset, dry spells |
+| Rainfall | CHIRPS v3 daily (`UCSB-CHC/CHIRPS/V3/DAILY_RNL`) | ~5.5 km, daily, 1981– | Monthly totals, anomalies, SPI, onset, dry spells |
 | Temperature | ERA5-Land monthly (`ECMWF/ERA5_LAND/MONTHLY_AGGR`) | ~11 km | Annual means, trend, suitability |
 | Vegetation | MODIS NDVI (`MODIS/061/MOD13Q1`) | 250 m, 16-day | Regional NDVI, VCI, trend, maps |
 | Field greenness | Sentinel-2 SR (`COPERNICUS/S2_SR_HARMONIZED`) | 10 m | Farm NDVI (SCL cloud mask) |

@@ -16,7 +16,7 @@ WATER_BASE_YEARS = (2017, 2021)  # Sentinel-1 years used as the water baseline
 
 # Earth Engine dataset IDs
 DS = {
-    "chirps": "UCSB-CHC/CHIRPS/V3/DAILY_SAT",          # band: precipitation (mm/day), ~5.5 km
+    "chirps": "UCSB-CHC/CHIRPS/V3/DAILY_RNL",          # band: precipitation (mm/day), ~5.5 km
     "era5_monthly": "ECMWF/ERA5_LAND/MONTHLY_AGGR",     # band: temperature_2m (K), ~11 km
     "modis_ndvi": "MODIS/061/MOD13Q1",                  # band: NDVI (x0.0001), 250 m, 16-day
     "modis_et": "MODIS/061/MOD16A2",                    # band: PET (x0.1 kg/m2 per 8 days), 500 m
