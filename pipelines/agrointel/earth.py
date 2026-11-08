@@ -51,6 +51,8 @@ def _reduce(img: ee.Image, fc: ee.FeatureCollection, scale: float, reducer=None,
     """reduceRegions → {id: {band: value}} without shipping geometries back."""
     reducer = reducer or ee.Reducer.mean()
     bands = img.bandNames().getInfo()
+    if len(bands) == 1:  # single-band output is named after the reducer ("mean"/"sum") unless set
+        reducer = reducer.setOutputs(bands)
     res = img.reduceRegions(collection=fc, reducer=reducer, scale=scale, tileScale=tile_scale)
     res = res.select([id_prop] + bands, None, False).getInfo()
     return {f["properties"][id_prop]: {b: f["properties"].get(b) for b in bands} for f in res["features"]}
@@ -199,7 +201,10 @@ def thumbnail(img: ee.Image, geometry: dict, out: Path, dims: int = 720) -> list
     """
     w, s, e, n = _bbox(geometry)
     region = ee.Geometry.Rectangle([w, s, e, n], "EPSG:4326", False)
-    url = img.clip(ee.Geometry(geometry)).getThumbURL(
+    # Mask with the region instead of clip(): clipping MODIS sinusoidal tiles can fail
+    # with "Unable to transform edge"; a constant image clipped in EPSG:4326 cannot.
+    inside = ee.Image.constant(1).clip(ee.Geometry(geometry))
+    url = img.updateMask(inside).getThumbURL(
         {"region": region, "dimensions": dims, "format": "png", "crs": "EPSG:4326"})
     out.parent.mkdir(parents=True, exist_ok=True)
     with urllib.request.urlopen(url, timeout=180) as r:
