@@ -318,3 +318,35 @@ def season_status(anom_pct: float, vci_latest: float | None, spi3_latest: float 
     s = 0.0 if spi3_latest is None else spi3_latest
     score = 0.4 * anom_pct + 0.5 * (v - 50) + 12 * min(0.0, s) - 3 * max(0.0, extra_dry_spells)
     return "Favourable" if score >= -8 else "Watch" if score >= -20 else "Stressed"
+
+
+# ---------------------------------------------------------------- reservoirs
+def reservoir_stats(series: dict[str, float], base: tuple[int, int]) -> dict | None:
+    """Latest surface area against the usual area for that calendar month and a 'full' reference.
+
+    series: {"YYYY-MM": km2}. 'Full' is the 95th percentile of all monthly areas, which is
+    steadier than the single largest month (often a flood or a radar artefact).
+    """
+    pts = sorted((k, v) for k, v in series.items() if v is not None)
+    if not pts:
+        return None
+    ym, area = pts[-1]
+    m = int(ym[5:7])
+    same = [v for k, v in pts if int(k[5:7]) == m and base[0] <= int(k[:4]) <= base[1]]
+    normal = float(np.mean(same)) if len(same) >= 3 else None
+    full = float(np.percentile([v for _, v in pts], 95))
+    pct_normal = area / normal * 100 if normal else None
+    status = (None if pct_normal is None else "Well below usual" if pct_normal < 70
+              else "Below usual" if pct_normal < 90 else "Above usual" if pct_normal > 115 else "Near usual")
+    monthly_normal = []
+    for mm in range(1, 13):
+        vals = [v for k, v in pts if int(k[5:7]) == mm and base[0] <= int(k[:4]) <= base[1]]
+        monthly_normal.append(round(float(np.mean(vals)), 2) if len(vals) >= 3 else None)
+    years = {}
+    for k, v in pts:
+        years.setdefault(k[:4], []).append(v)
+    return {"latest_month": ym, "area_km2": round(area, 2), "normal_km2": None if normal is None else round(normal, 2),
+            "pct_normal": None if pct_normal is None else round(pct_normal), "full_km2": round(full, 2),
+            "fill_pct": round(min(area / full, 1.2) * 100) if full else None, "status": status,
+            "monthly_normal": monthly_normal,
+            "annual": {y: {"min": round(min(v), 2), "max": round(max(v), 2), "n": len(v)} for y, v in years.items()}}

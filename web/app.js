@@ -42,7 +42,7 @@ function asView(U, y) {
 /* ---------------- state ---------------- */
 let state = Object.assign({ region: 'northern', district: null, year: null, level: 'region', ind: 'risk', sub: { crop: 'health', climate: 'rain', water: 'surface', risk: 'summary', farms: 'trace' }, farm: null },
   store.get('agrointel.state', {}));
-const save = () => store.set('agrointel.state', { region: state.region, district: state.district, year: state.year, level: state.level, ind: state.ind, sub: state.sub, farm: state.farm });
+const save = () => store.set('agrointel.state', { region: state.region, district: state.district, year: state.year, level: state.level, ind: state.ind, sub: state.sub, farm: state.farm, res: state.res });
 
 /* ---------------- classes ---------------- */
 const level = v => !isNum(v) ? ['No data', 'neu'] : v < 30 ? ['Low', 'good'] : v < 50 ? ['Moderate', 'mod'] : v < 70 ? ['High', 'warn'] : ['Very high', 'bad'];
@@ -88,7 +88,7 @@ function diverging(vals, o) {
   return svg(W, H, s, o.title);
 }
 function lineChart(series, labels, o) {
-  const W = 360, H = o.h || 200, L = 40, R = 12, T = 12, B = 22, iw = W - L - R, ih = H - T - B;
+  const W = o.w || 360, H = o.h || 200, L = 40, R = 12, T = 12, B = 22, iw = W - L - R, ih = H - T - B;
   const all = series.flatMap(s => s.vals.filter(isNum)); if (!all.length) return '<p class="note">No data yet.</p>';
   let mn = o.min ?? Math.min(...all), mx = o.max ?? Math.max(...all);
   if (o.pad) { const p = (mx - mn) * .15 || .1; mn -= p; mx += p; }
@@ -152,8 +152,8 @@ const MODS = {
     items: ['Vegetation health on farmland', 'Crop growth through the season', 'Crop suitability: climate and soil', 'Soil profile (iSDAsoil)', 'Seasonal assessment'] },
   climate: { n: 'Climate', full: 'Climate intelligence', col: 'gold', ltr: 'B', subs: [['rain', 'Rainfall'], ['anom', 'Anomalies'], ['temp', 'Temperature'], ['drought', 'Drought'], ['ind', 'Season indicators']],
     items: ['Rainfall vs 1991–2020 normal', 'Monthly anomalies', 'Temperature trend since 1996', 'Drought (SPI-3)', 'Onset, cessation, dry spells'] },
-  water: { n: 'Water', full: 'Water intelligence', col: 'water', ltr: 'C', subs: [['surface', 'Surface water'], ['stress', 'Water stress']],
-    items: ['Surface water from radar', 'Extent vs 2017–2021 baseline', 'Water balance (rain − PET)', 'Aridity index'] },
+  water: { n: 'Water', full: 'Water intelligence', col: 'water', ltr: 'C', subs: [['surface', 'Surface water'], ['res', 'Reservoirs'], ['stress', 'Water stress']],
+    items: ['Surface water from radar', 'Reservoir levels: Tono, Vea, Bontanga, Weija, Bui, Volta…', 'Extent vs 2017–2021 baseline', 'Water balance (rain − PET)', 'Aridity index'] },
   risk: { n: 'Risk', full: 'Agricultural risk', col: 'red', ltr: 'D', subs: [['summary', 'Risk summary'], ['map', 'Vegetation anomaly map']],
     items: ['Drought exposure', 'Flood exposure', 'Land degradation trend', 'Production risk'] },
   farms: { n: 'Farms', full: 'Farm management', col: 'kblack', ltr: 'E', subs: [['trace', 'Map a farm'], ['list', 'Monitored farms']],
@@ -481,6 +481,45 @@ VIEWS.water.surface = R => { const w = R.water;
   <div class="facts">${fact('This month', fx(w.current_km2, 0) + ' km²', '')}${fact('Usual', fx(w.normal_km2, 0) + ' km²', '2017–2021')}${fact('Permanent', fx(w.permanent_km2, 0) + ' km²', 'JRC, ≥75% of the time')}</div></div></div>`); };
 AFTER.water.surface = () => regionMap('m2', 'water');
 
+const ymTxt = ym => ym ? `${MONTH[Number(ym.slice(5, 7)) - 1]} ${ym.slice(0, 4)}` : '–';
+const resCls = st => !st ? 'neu' : st === 'Well below usual' ? 'bad' : st === 'Below usual' ? 'warn' : st === 'Above usual' ? 'neu' : 'good';
+const resRegion = it => it.region ? ((summary(it.region) || {}).name || it.region) : 'Several regions';
+function resChart(it) {
+  const ser = it.series, keys = Object.keys(ser).sort(); if (!keys.length) return '<p class="note">No radar data yet.</p>';
+  const last = keys[keys.length - 1], ly = Number(last.slice(0, 4)), lmn = Number(last.slice(5, 7)), labels = [], act = [], nor = [];
+  for (let i = 59; i >= 0; i--) { const d = new Date(Date.UTC(ly, lmn - 1 - i, 1)), ym = `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}`;
+    labels.push(d.getUTCMonth() === 0 ? String(d.getUTCFullYear()) : ''); act.push(isNum(ser[ym]) ? ser[ym] : null); nor.push(it.stats ? it.stats.monthly_normal[d.getUTCMonth()] : null); }
+  const all = [...act, ...nor].filter(isNum);
+  return lineChart([{ vals: nor, cls: 'l-norm', dash: true }, { vals: act, cls: 'l-water', area: true, dot: true }], labels.map((l, i) => l || (i === 59 ? MON[lmn - 1] : '')),
+    { fmt: v => v >= 100 ? Math.round(v) : fx(v, 1), min: 0, max: niceMax(Math.max(...all) * 1.05), w: innerWidth < 700 ? 420 : 860, h: innerWidth < 700 ? 240 : 220, every: 1, title: `${it.name}: water surface area, last five years` });
+}
+VIEWS.water.res = R => {
+  if (!D.res || !D.res.items.length) return P(verdict(chip('Not yet', 'neu'), 'Reservoir data appears after the next pipeline run', 'The pipeline maps each reservoir once, then measures its water area every month from Sentinel-1 radar.'));
+  const rk = R.level === 'district' ? R.region : R.key, items = D.res.items;
+  const local = items.filter(i => i.region === rk);
+  if (!items.find(i => i.key === state.res)) state.res = (local[0] || items[0]).key;
+  const it = items.find(i => i.key === state.res), st = it.stats || {}, yb = st.annual && st.annual[String(R.year)];
+  const head = !isNum(st.area_km2) ? `No recent radar data for ${esc(it.name)}` : `${esc(it.name)} holds ${fx(st.area_km2, st.area_km2 < 100 ? 1 : 0)} km² of open water${isNum(st.pct_normal) ? `, ${st.pct_normal}% of its usual area for ${MONTH[Number(st.latest_month.slice(5)) - 1]}` : ''}`;
+  const sorted = [...items].sort((a, b) => (b.region === rk) - (a.region === rk) || (a.stats && b.stats ? (a.stats.pct_normal ?? 999) - (b.stats.pct_normal ?? 999) : 0));
+  return P(`<div class="split"><div class="stack-v"><div id="m3" class="lmap"></div><p class="note">Outline: largest water extent ever recorded (JRC Global Surface Water, 1984–2021). Imagery © Esri.</p></div>
+    <div class="stack-v">${verdict(chip(st.status || 'No data', resCls(st.status)), head, `${esc(it.use)}. ${esc(resRegion(it))}. Surface area measured from Sentinel-1 radar, which sees through cloud, in ${ymTxt(st.latest_month)}.`)}
+      <div class="facts">${fact('Water area', isNum(st.area_km2) ? fx(st.area_km2, st.area_km2 < 100 ? 1 : 0) : '–', 'km² · ' + ymTxt(st.latest_month))}${fact('Usual for the month', isNum(st.normal_km2) ? fx(st.normal_km2, st.normal_km2 < 100 ? 1 : 0) : '–', `km² · ${D.res.base[0]}–${D.res.base[1]} average`)}${fact('Of full', isNum(st.fill_pct) ? st.fill_pct + '%' : '–', `full ≈ ${fx(st.full_km2, st.full_km2 < 100 ? 1 : 0)} km²`)}</div>
+      ${yb && !R.isCurrent ? `<p class="basis">In ${R.year} the water area ranged from <b>${fx(yb.min, 1)}</b> to <b>${fx(yb.max, 1)} km²</b> (${yb.n} months with radar data).</p>` : ''}
+    </div></div>
+    <div>${resChart(it)}<p class="note">Monthly water area (blue) against the usual area for each month (dashed). Area is not volume: a full, steep-sided reservoir and a shallow one can hold very different amounts.</p></div>
+    <div class="rtable"><table class="rtab small"><thead><tr><th>Reservoir</th><th>Region</th><th>Area</th><th>% of usual</th><th>% of full</th><th>Status</th></tr></thead><tbody>
+      ${sorted.map(x => { const t = x.stats || {}; return `<tr class="${x.key === it.key ? 'tot' : ''}"><td><button type="button" class="linkb" data-res="${x.key}">${esc(x.name)}</button></td><td>${esc(resRegion(x))}</td><td>${isNum(t.area_km2) ? fx(t.area_km2, t.area_km2 < 100 ? 1 : 0) + ' km²' : '–'}</td><td>${isNum(t.pct_normal) ? t.pct_normal + '%' : '–'}</td><td>${isNum(t.fill_pct) ? t.fill_pct + '%' : '–'}</td><td>${t.status ? chip(t.status, resCls(t.status)) : '–'}</td></tr>`; }).join('')}
+    </tbody></table></div>
+    <p class="note">Sentinel-1 VV backscatter below −16 dB inside the outline plus 150 m, monthly median. Floating weeds, wind and shallow edges can make the area look smaller than it is.</p>`);
+};
+AFTER.water.res = () => {
+  $$('[data-res]').forEach(b => b.onclick = () => { state.res = b.dataset.res; save(); renderView('water'); });
+  const m = newMap('m3', 'sat'); if (!m || !D.resGeo) return;
+  const f = D.resGeo.features.find(x => x.properties.key === state.res); if (!f) return;
+  const lyr = L.geoJSON(f, { style: { color: '#FAB633', weight: 2.5, fill: true, fillColor: '#2C6FB5', fillOpacity: .15 } }).addTo(m);
+  m.fitBounds(lyr.getBounds(), { padding: [10, 10] });
+};
+
 VIEWS.water.stress = R => { const b = R.balance, ai = b.aridity, aic = !isNum(ai) ? '–' : ai < .5 ? 'Semi-arid' : ai < .65 ? 'Dry sub-humid' : ai < 1 ? 'Moist sub-humid' : 'Humid';
   return P(`${verdict(chip(b.deficit_months + ' deficit months', b.deficit_months >= 7 ? 'warn' : 'good'), `${b.deficit_months} months where crops need more water than falls`, 'Bars show rainfall minus potential evapotranspiration (MODIS), the water crops and soil would lose. Below zero is a deficit. Faded bars use the normal for months not yet observed.')}
     ${diverging(b.balance, { fmt: v => (v > 0 ? '+' : '') + Math.round(v), pos: 'b-wet', neg: 'b-dry', title: 'Monthly water balance in mm', faded: b.projected })}
@@ -613,6 +652,7 @@ function methodsView() {
       <li><strong>Water:</strong> Sentinel-1 radar (VV backscatter below −16 dB) within the JRC Global Surface Water maximum extent; JRC occurrence for permanent water.</li>
       <li><strong>Forest:</strong> Hansen Global Forest Change v1.13 (tree cover 2000, loss year to 2025).</li>
       <li><strong>Land cover:</strong> ESA WorldCover 2021 v200, 10 m (CC BY 4.0).</li>
+      <li><strong>Reservoirs:</strong> outlines from the JRC Global Surface Water maximum extent (1984–2021); monthly water area from Sentinel-1 radar since 2015.</li>
       <li><strong>Soil:</strong> iSDAsoil Africa v1, 30 m topsoil predictions (CC BY 4.0).</li>
       <li><strong>Boundaries:</strong> geoBoundaries for Ghana's 16 regions and 260 districts (2019 set, CC BY 4.0).</li>
     </ul>
@@ -624,6 +664,7 @@ function methodsView() {
       <li><strong>Vegetation condition (VCI)</strong> is a standardised form of Kogan's (1995) index: how far this month's regional NDVI is from the same month in other years since 2001, scaled to 0–100 where 50 is typical. Changes smaller than the satellite's noise (0.04 NDVI) cannot reach the extremes. Only complete months are used.</li>
       <li><strong>Farmland-only vegetation:</strong> a 250 m MODIS pixel counts as farmland when at least 30% of the 10 m WorldCover pixels inside it are cropland. Where cropland covers at least 3% of a region or district, its NDVI and VCI use farmland pixels only; elsewhere (mostly cocoa and forest areas) they use all vegetation. The greening trend always uses all land.</li>
       <li><strong>Crop suitability</strong> scores growing-season rainfall (annual crops) or annual rainfall (perennials), mean temperature and rainy-season length against simplified FAO ECOCROP ranges, then lowers the score by up to 30% for topsoil pH outside the crop's range, soil shallower than it needs, or heavy clay for root and pod crops.</li>
+      <li><strong>Reservoirs:</strong> each outline is the largest water body in the JRC maximum water extent within a box drawn around the reservoir. Each month, Sentinel-1 VV backscatter below −16 dB (median of the month's passes) inside the outline plus 150 m gives the open-water area. "Usual" is the 2017–2023 average for that calendar month; "full" is the 95th percentile of all monthly areas. This is surface area, not stored volume, and floating weeds or wind can make it read low.</li>
       <li><strong>Soil ratings</strong> use the iSDAsoil 0–20 cm means, back-transformed per pixel and averaged over land that is not built-up or water. Bands: pH below 4.5 extremely, 4.5–5.5 strongly, 5.5–6.5 moderately acid; organic carbon below 6, 12 and 20 g/kg very low, low, moderate; total nitrogen below 0.5, 1 and 2 g/kg; extractable phosphorus below 10 and 25 ppm; potassium below 60 and 150 ppm; bedrock shallower than 50 and 100 cm.</li>
       <li><strong>Past seasons</strong> (2001 onward) use full-year rainfall, SPI-3 at the end of the main season, and vegetation condition averaged over the growing season. Surface water and map images cover the latest month only.</li>
       <li><strong>Risk indices</strong> are transparent heuristics (0–100) combining SPI, rainfall anomaly, dry spells, surface water, NDVI trend and VCI. They are indicators for discussion, not validated predictions.</li>
@@ -641,7 +682,7 @@ function methodsView() {
 /* ---------------- boot ---------------- */
 /* ---------------- report builder ---------------- */
 const RSECT = [['rain', 'Rainfall and drought'], ['season', 'Rainy season timing'], ['veg', 'Vegetation condition'], ['soil', 'Soil and land'],
-  ['crops', 'Crop suitability'], ['water', 'Water'], ['risk', 'Agricultural risk'], ['table', 'Area breakdown table']];
+  ['crops', 'Crop suitability'], ['water', 'Water'], ['res', 'Reservoirs'], ['risk', 'Agricultural risk'], ['table', 'Area breakdown table']];
 const RDEF = { scope: 'unit', sections: RSECT.map(s => s[0]), title: '', ref: '', forOrg: '', byName: '', byRole: '', byOrg: '', byContact: '', notes: '', logo: '', remember: true };
 let REP = Object.assign({}, RDEF, store.get('agrointel.report', {}));
 const andJoin = xs => xs.length > 1 ? xs.slice(0, -1).join(', ') + ' and ' + xs[xs.length - 1] : (xs[0] || '');
@@ -732,6 +773,8 @@ function reportDoc(R) {
   if (on('crops') && !R.national && R.suitability) parts.push(sec(n++, 'Crop suitability', `<table class="rtab"><thead><tr><th>Crop</th><th>Class</th><th>Score</th><th>Limitations</th></tr></thead><tbody>${R.suitability.map(c => `<tr><td>${esc(c.name)}</td><td>${c.class} · ${suitName(c.class)}</td><td>${c.score}</td><td>${esc([...(isNum(c.climate) && c.climate < 80 ? ['climate'] : []), ...(c.limits || [])].join(', ') || '–')}</td></tr>`).join('')}</tbody></table><p class="rcap">FAO land-evaluation classes from the 1991–2020 climate and topsoil. Long-term suitability, not a forecast for this season.</p>`));
   if (on('water') && !R.national && R.water && R.isCurrent) { const w = R.water;
     parts.push(sec(n++, 'Water', `<p>Surface water detected by Sentinel-1 radar in ${MONTH[Number(w.month.slice(5)) - 1]} ${w.month.slice(0, 4)}: <b>${fx(w.current_km2, 1)} km²</b>${isNum(w.pct) ? `, ${fx(w.pct)}% of the 2017–2021 average for that month (${fx(w.normal_km2, 1)} km²)` : ''}. Permanent water: ${fx(w.permanent_km2, 1)} km².${R.balance ? ` Annual rainfall is ${fx(R.balance.aridity, 2)} times potential evaporation (aridity index), with ${R.balance.deficit_months} months in water deficit.` : ''}</p>`)); }
+  if (on('res') && D.res) { const rk = R.national ? null : R.level === 'district' ? R.region : R.key, rs = D.res.items.filter(i => R.national || i.region === rk);
+    if (rs.length) parts.push(sec(n++, 'Reservoirs', `<table class="rtab"><thead><tr><th>Reservoir</th><th>Main use</th><th>Water area</th><th>% of usual</th><th>% of full</th><th>Status</th></tr></thead><tbody>${rs.map(x => { const t = x.stats || {}; return `<tr><td>${esc(x.name)}</td><td>${esc(x.use)}</td><td>${isNum(t.area_km2) ? fx(t.area_km2, t.area_km2 < 100 ? 1 : 0) + ' km²' : '–'}</td><td>${isNum(t.pct_normal) ? t.pct_normal + '%' : '–'}</td><td>${isNum(t.fill_pct) ? t.fill_pct + '%' : '–'}</td><td>${esc(t.status || '–')}</td></tr>`; }).join('')}</tbody></table><p class="rcap">Open-water surface area from Sentinel-1 radar for ${ymTxt(D.res.month)}, against the ${D.res.base[0]}–${D.res.base[1]} average for the same month. Area, not volume.</p>`)); }
   if (on('risk') && R.risk) parts.push(sec(n++, 'Agricultural risk', `<table class="rtab"><thead><tr><th>Risk</th><th>Score (0–100)</th><th>Level</th></tr></thead><tbody>${[['drought', 'Drought'], ['flood', 'Flood'], ['degradation', 'Land degradation'], ['production', 'Production'], ['composite', 'Composite']].map(([k, l]) => `<tr${k === 'composite' ? ' class="tot"' : ''}><td>${l}</td><td>${fx(R.risk[k])}</td><td>${level(R.risk[k])[0]}</td></tr>`).join('')}</tbody></table><p class="rcap">Transparent indices combining drought index, rainfall, dry spells, surface water, greening trend and vegetation condition. Indicators for discussion, not validated predictions.</p>`));
   if (on('table') && rows) { const feats = R.national ? D.geo.features : (D.dgeo ? D.dgeo.features.filter(f => f.properties.region === (R.level === 'district' ? R.region : R.key)) : []);
     const byKey = Object.fromEntries(rows.map(r => [r.key, r]));
@@ -819,6 +862,7 @@ async function boot() {
   try {
     [D.meta, D.geo] = await Promise.all([getJSON('data/meta.json'), getJSON('data/regions.geojson')]);
     if (D.meta.farms) D.farms = await getJSON('data/farms.json').catch(() => null);
+    if (D.meta.reservoirs) [D.res, D.resGeo] = await Promise.all([getJSON('data/reservoirs.json').catch(() => null), getJSON('data/reservoirs.geojson').catch(() => null)]);
   } catch (e) {
     document.body.innerHTML = `<p class="loading">Could not load data (${esc(e.message)}). Run the pipeline or <code>python pipelines/make_sample_data.py</code> first.</p>`; return;
   }

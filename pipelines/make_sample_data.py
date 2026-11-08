@@ -134,6 +134,26 @@ class FakeEarth(SimpleNamespace):
                       "depth": 60 + 120 * u[5], "texture": 9 if north else (6 if u[6] < 0.6 else 4)}
         return out
 
+    def reservoir_shape(self, res):
+        w, s_, e, n = res["box"]
+        cx, cy, dx, dy = (w + e) / 2, (s_ + n) / 2, (e - w) * 0.25, (n - s_) * 0.25
+        ring = [[cx - dx, cy], [cx - dx * 0.3, cy + dy], [cx + dx, cy + dy * 0.6], [cx + dx * 0.6, cy - dy], [cx - dx * 0.5, cy - dy * 0.8], [cx - dx, cy]]
+        return {"geometry": {"type": "Polygon", "coordinates": [ring]}, "area_km2": dx * dy * 12321 * 2.2, "seed_dist_m": 0}
+
+    def reservoir_monthly(self, shapes, keys, y, lm, scale):
+        out = {}
+        for k in keys:
+            full = shapes[k]["area_km2"]
+            row = {}
+            for m in range(1, lm + 1):
+                if y == 2015 and m < 6:
+                    row[f"m{m:02d}"] = None
+                    continue
+                season = 0.62 + 0.3 * np.cos((m - 9.5) / 12 * 2 * np.pi)
+                row[f"m{m:02d}"] = full * min(1.0, season * (0.9 + 0.2 * _rng(k, y, "res").random()) * (0.97 if y >= 2024 else 1))
+            out[k] = row
+        return out
+
     def era5_annual_temps(self, fc, first, last):
         res = {}
         for k, g in _units(fc):

@@ -29,7 +29,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from agrointel import analysis as A  # noqa: E402
 from agrointel import earth as E  # noqa: E402
 from agrointel.config import (CACHE_DIR, CROPLAND_MIN_PCT, DISTRICTS_GEOJSON, FARMS_GEOJSON,  # noqa: E402
-                              FIRST_YEAR, HISTORY_BUDGET_MIN, LANDCOVER, NDVI_BASE_START, NORMAL_END,
+                              FIRST_YEAR, HISTORY_BUDGET_MIN, LANDCOVER, RESERVOIR_BASE, RESERVOIR_FIRST_YEAR, RESERVOIRS, NDVI_BASE_START, NORMAL_END,
                               NORMAL_START, REGIONS, REGIONS_GEOJSON, SEASON_BASE, TEMP_TREND_START, WEB_DATA)
 
 log = logging.getLogger("agrointel")
@@ -180,6 +180,68 @@ def fetch_level(level, geo, keys, regimes, year, last_month, latest, nyear, nmon
     log.info("%s water %s-%02d", level, wy, wm)
     out["water"] = soft(f"{level} water", E.water_areas, fc, wy, wm, default={})
     return out
+
+
+# ---------------------------------------------------------------- reservoirs
+def update_reservoirs(wy, wm, rebuild):
+    """Outlines (once) and monthly Sentinel-1 surface area for each reservoir; returns website payloads."""
+    shapes = {} if rebuild else load("reservoir_shapes.json")
+    for res in RESERVOIRS:
+        if res["key"] in shapes:
+            continue
+        info = soft(f"reservoir outline {res['key']}", E.reservoir_shape, res, default=None)
+        if info and info.get("geometry"):
+            shapes[res["key"]] = info
+            far = (info.get("seed_dist_m") or 0) > 2000
+            (log.warning if far else log.info)("reservoir %s: outline %.1f km2, %.0f m from the check point%s",
+                                               res["key"], info["area_km2"], info.get("seed_dist_m") or 0,
+                                               " - CHECK THE BOX IN config.py" if far else "")
+            save("reservoir_shapes.json", shapes)
+    keys = [r["key"] for r in RESERVOIRS if r["key"] in shapes]
+    if not keys:
+        return None, None
+    groups = {}
+    for r in RESERVOIRS:
+        if r["key"] in shapes:
+            groups.setdefault(r["scale"], []).append(r["key"])
+    cache = {} if rebuild else load("reservoir_monthly.json")
+    for y in range(RESERVOIR_FIRST_YEAR, wy + 1):
+        lm = wm if y == wy else 12
+        for scale, ks in groups.items():
+            have = all(any(ym.startswith(str(y)) for ym in cache.get(k, {})) for k in ks)
+            if have and y < wy - 1:
+                continue
+            if y < wy - 1 and time.monotonic() > DEADLINE:
+                log.warning("reservoirs: time budget used, %s left for the next run", y)
+                continue
+            res = soft(f"reservoirs {y} @{scale} m", E.reservoir_monthly, shapes, ks, y, lm, scale, default={})
+            n = sum(1 for row in res.values() for v in row.values() if v is not None)
+            (log.info if n else log.warning)("reservoirs %s @%s m: %d values", y, scale, n)
+            for k in ks:
+                row = res.get(k, {})
+                for m in range(1, 13):
+                    ym, v = f"{y}-{m:02d}", row.get(f"m{m:02d}")
+                    if v is not None and m <= lm:
+                        cache.setdefault(k, {})[ym] = round(v, 3)
+                    elif res:
+                        cache.get(k, {}).pop(ym, None)
+        save("reservoir_monthly.json", cache)
+    items, feats = [], []
+    for r in RESERVOIRS:
+        k = r["key"]
+        if k not in shapes:
+            continue
+        ser = dict(sorted(cache.get(k, {}).items()))
+        items.append({"key": k, "name": r["name"], "region": r["region"], "use": r["use"],
+                      "outline_km2": r_(shapes[k]["area_km2"]), "series": ser,
+                      "stats": A.reservoir_stats(ser, RESERVOIR_BASE)})
+        feats.append({"type": "Feature", "properties": {"key": k, "name": r["name"]}, "geometry": shapes[k]["geometry"]})
+    return ({"month": f"{wy}-{wm:02d}", "base": list(RESERVOIR_BASE), "items": items},
+            {"type": "FeatureCollection", "features": feats})
+
+
+def r_(v):
+    return None if v is None else round(float(v), 2)
 
 
 # ---------------------------------------------------------------- assembly
@@ -371,6 +433,17 @@ def main() -> None:
         (WEB_DATA / f"summary_{level}.json").write_text(json.dumps({"units": units}, separators=(",", ":")))
         log.info("%s level done: %d units", level, len(units))
 
+    # Reservoirs
+    log.info("reservoirs")
+    res_out, res_geo = soft("reservoirs", update_reservoirs, wy, wm, args.rebuild, default=(None, None))
+    if res_out:
+        (WEB_DATA / "reservoirs.json").write_text(json.dumps(res_out, separators=(",", ":")))
+        (WEB_DATA / "reservoirs.geojson").write_text(json.dumps(res_geo, separators=(",", ":")))
+        for it in res_out["items"]:
+            st = it["stats"] or {}
+            log.info("reservoir %s: %s km2 in %s, %s%% of usual", it["key"], st.get("area_km2"),
+                     st.get("latest_month"), st.get("pct_normal"))
+
     # Maps (regions only)
     maps_meta = None
     if not args.no_maps:
@@ -412,6 +485,7 @@ def main() -> None:
         "year": year, "last_month": last_month, "rain_latest": latest.isoformat(),
         "first_year": FIRST_YEAR, "districts": "district" in summaries,
         "maps": maps_meta, "farms": bool(farms_out), "regions": regions_now,
+        "reservoirs": (WEB_DATA / "reservoirs.json").exists(),
     }, separators=(",", ":")))
     log.info("done")
 

@@ -135,3 +135,18 @@ def test_soil_lowers_but_never_rules_out():
         assert p[k]["score"] >= 0.7 * g[k]["climate"] - 1
     assert "soil too acidic" in p["soy"]["limits"] and "heavy clay soil" in p["yam"]["limits"]
     assert g["maize"]["limits"] == []
+
+
+def test_reservoir_stats():
+    ser = {}
+    for y in range(2017, 2027):
+        for m in range(1, 13):
+            if y == 2026 and m > 9:
+                break
+            ser[f"{y}-{m:02d}"] = 10 + 6 * (m in (8, 9, 10)) - 3 * (m in (3, 4))
+    ser["2026-09"] = 8.0  # dry year: 8 km2 in September against a usual 16
+    s = A.reservoir_stats(ser, (2017, 2023))
+    assert s["latest_month"] == "2026-09" and s["normal_km2"] == 16.0
+    assert s["pct_normal"] == 50 and s["status"] == "Well below usual"
+    assert s["full_km2"] == 16.0 and s["fill_pct"] == 50
+    assert A.reservoir_stats({}, (2017, 2023)) is None

@@ -332,3 +332,47 @@ def farm_stats(farms_geojson: dict, year: int, last_month: int) -> dict[str, dic
         stats[k].update(forest.get(k, {}))
         stats[k].update(tc.get(k, {}))
     return stats
+
+
+# ---------------------------------------------------------------- reservoirs (JRC outline + Sentinel-1 area)
+def reservoir_shape(res: dict) -> dict:
+    """Outline of the largest water body in the JRC maximum extent inside the reservoir's box."""
+    box = ee.Geometry.Rectangle(res["box"], "EPSG:4326", False)
+    vscale = max(30, res["scale"] * 1.5)
+    water = ee.Image(DS["jrc_water"]).select("max_extent").eq(1).selfMask()
+    vecs = water.reduceToVectors(geometry=box, scale=vscale, geometryType="polygon", eightConnected=True,
+                                 labelProperty="w", maxPixels=1e10, bestEffort=True)
+    vecs = vecs.map(lambda f: f.set("a", f.geometry().area(maxError=vscale)))
+    best = ee.Feature(vecs.sort("a", False).first())
+    geom = best.geometry().simplify(maxError=vscale)
+    seed = ee.Geometry.Point(res["seed"])
+    info = ee.Dictionary({"geometry": geom, "area_km2": best.getNumber("a").divide(1e6),
+                          "seed_dist_m": geom.distance(seed, maxError=50)}).getInfo()
+    return info
+
+
+def reservoir_monthly(shapes: dict, keys: list[str], year: int, last_month: int, scale: int) -> dict[str, dict]:
+    """Sentinel-1 water area (km2) per reservoir and month, within the outline plus a 150 m margin."""
+    fc = ee.FeatureCollection([ee.Feature(ee.Geometry(shapes[k]["geometry"]).buffer(150, 50), {"key": k}) for k in keys])
+    bounds = fc.geometry().bounds(100)
+    s1 = (ee.ImageCollection(DS["s1"]).filterBounds(bounds)
+          .filter(ee.Filter.eq("instrumentMode", "IW"))
+          .filter(ee.Filter.listContains("transmitterReceiverPolarisation", "VV")).select("VV"))
+    area = ee.Image.pixelArea().divide(1e6)
+    bands = []
+    for m in range(1, last_month + 1):
+        s = ee.Date.fromYMD(year, m, 1)
+        c = s1.filterDate(s, s.advance(1, "month"))
+        wet = _safe(c, "VV", "median").lt(-16)
+        bands.append(wet.multiply(area).rename(f"m{m:02d}"))
+    sizes = ee.List([s1.filterBounds(ee.Geometry(shapes[k]["geometry"]))
+                     .filterDate(ee.Date.fromYMD(year, m, 1), ee.Date.fromYMD(year, m, 1).advance(1, "month")).size()
+                     for k in keys for m in range(1, last_month + 1)]).getInfo()
+    res = _reduce(ee.Image.cat(bands), fc, scale=scale, reducer=ee.Reducer.sum(), tile_scale=16)
+    # a month with no Sentinel-1 pass over a reservoir sums to 0 over masked pixels: report it as missing
+    for i, k in enumerate(keys):
+        for m in range(1, last_month + 1):
+            if sizes[i * last_month + m - 1] == 0 and k in res:
+                res[k][f"m{m:02d}"] = None
+    return res
+

@@ -45,6 +45,35 @@ LANDCOVER = {10: "Tree cover", 20: "Shrubland", 30: "Grassland", 40: "Cropland",
 # Minutes the pipeline may spend back-filling history before it defers the rest to the next run
 HISTORY_BUDGET_MIN = 110
 
+# Reservoirs. The outline is found automatically: the largest water body in the JRC
+# maximum water extent inside `box` [west, south, east, north]. `seed` is a point that
+# should fall on (or very near) the reservoir and is only used to check the outline.
+# `scale` is the Sentinel-1 analysis resolution in metres (coarser for the largest lakes).
+RESERVOIR_FIRST_YEAR = 2015    # Sentinel-1 coverage over Ghana is regular from 2016-17
+RESERVOIR_BASE = (2017, 2023)  # years that define the usual area for each month
+RESERVOIRS = [
+    {"key": "tono", "name": "Tono", "region": "upper-east", "use": "Irrigation (about 2,490 ha), water supply",
+     "box": [-1.26, 10.78, -1.04, 10.96], "seed": [-1.15, 10.87], "scale": 20},
+    {"key": "vea", "name": "Vea", "region": "upper-east", "use": "Irrigation, Bolgatanga water supply",
+     "box": [-0.93, 10.82, -0.79, 10.93], "seed": [-0.86, 10.87], "scale": 20},
+    {"key": "bontanga", "name": "Bontanga", "region": "northern", "use": "Irrigation (rice, vegetables)",
+     "box": [-1.11, 9.51, -0.96, 9.65], "seed": [-1.03, 9.58], "scale": 20},
+    {"key": "golinga", "name": "Golinga", "region": "northern", "use": "Irrigation",
+     "box": [-1.00, 9.32, -0.90, 9.41], "seed": [-0.95, 9.36], "scale": 20},
+    {"key": "weija", "name": "Weija", "region": "greater-accra", "use": "Water supply for western Accra, irrigation",
+     "box": [-0.43, 5.54, -0.29, 5.73], "seed": [-0.36, 5.60], "scale": 20},
+    {"key": "barekese", "name": "Barekese", "region": "ashanti", "use": "Kumasi water supply",
+     "box": [-1.79, 6.79, -1.65, 6.91], "seed": [-1.72, 6.84], "scale": 20},
+    {"key": "owabi", "name": "Owabi", "region": "ashanti", "use": "Kumasi water supply",
+     "box": [-1.75, 6.70, -1.66, 6.78], "seed": [-1.70, 6.74], "scale": 20},
+    {"key": "kpong", "name": "Kpong headpond", "region": "eastern", "use": "Hydropower, irrigation, Accra water supply",
+     "box": [0.02, 6.10, 0.17, 6.29], "seed": [0.09, 6.17], "scale": 20},
+    {"key": "bui", "name": "Bui", "region": "bono", "use": "Hydropower, irrigation",
+     "box": [-2.60, 8.22, -2.00, 8.85], "seed": [-2.25, 8.35], "scale": 40},
+    {"key": "volta", "name": "Lake Volta", "region": None, "use": "Akosombo hydropower, transport, fisheries",
+     "box": [-1.70, 6.28, 0.65, 9.25], "seed": [-0.05, 7.20], "scale": 100},
+]
+
 # Region metadata. "regime": uni = one rainy season (north), bi = two seasons (south).
 REGIONS = {
     "ahafo":         {"capital": "Goaso", "zone": "Moist semi-deciduous forest", "regime": "bi", "forest": True},

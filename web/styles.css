@@ -387,10 +387,11 @@ form.reg{display:grid;gap:12px;grid-template-columns:repeat(auto-fit,minmax(180p
 .rgrid > div{break-inside:avoid}
 .rcap{font-size:11px;color:#4D5E55;margin-top:4px}
 .rtab{width:100%;border-collapse:collapse;font-size:12.5px;break-inside:auto}
-.rtab th{text-align:left;font-size:11px;color:#4D5E55;font-weight:600;border-bottom:1.5px solid #10201A;padding:5px 6px}
-.rtab td{border-bottom:1px solid #DCE3D8;padding:5px 6px;font-variant-numeric:tabular-nums}
+.rtab th{text-align:left;font-size:11px;color:var(--muted);font-weight:600;border-bottom:1.5px solid var(--ink);padding:5px 6px}
+.rtab td{border-bottom:1px solid var(--line);padding:5px 6px;font-variant-numeric:tabular-nums}
 .rtab tr{break-inside:avoid}
-.rtab tr.tot td{font-weight:700;background:#F3F6F0}
+.rtab tr.tot td{font-weight:700;background:var(--sunk)}
+.rdoc .rtab tr.tot td{background:#F3F6F0}
 .rtab.small{font-size:11.5px}
 .rtab.small td,.rtab.small th{padding:3px 5px}
 .rmap{width:100%;height:auto;display:block}
@@ -420,3 +421,9 @@ form.reg{display:grid;gap:12px;grid-template-columns:repeat(auto-fit,minmax(180p
 }
 .rtab:not(.small){break-inside:avoid}
 @media print{body.reporting .rfoot{display:none}}
+
+/* reservoirs */
+.l-water{stroke:var(--water);stroke-width:2.2;stroke-linejoin:round} .l-water-area{fill:var(--water);opacity:.14} .l-water-dot{fill:var(--water)}
+.rtable{overflow-x:auto}
+.rtable .rtab{min-width:560px}
+.linkb{background:none;border:0;padding:0;color:var(--accent);font-weight:700;cursor:pointer;text-decoration:underline;text-underline-offset:2px}
