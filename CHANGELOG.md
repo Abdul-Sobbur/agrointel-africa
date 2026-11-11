@@ -5,6 +5,7 @@
 * **Ask AgroIntel:** a chat assistant for farmers and officers. It finds the place and topic in a question and answers from the site's satellite data and the 16-day forecast, with voice input and read-aloud. Optional AI mode answers in Twi, Dagbani, Hausa, Ewe or French through a small proxy (`assistant/worker.js`).
 * **Forecast and advice:** 16-day rain and temperature forecast for every district, with heat alerts, dry-spell warnings, planting, spraying and flood advice, and the weekly crop water shortfall.
 * **Irrigation planner:** how many hectares of tomato, onion, pepper, leafy vegetables, maize or rice each reservoir can water, by planting month and irrigation method.
+* **Harvest outlook:** a national map of districts likely to have a food surplus or shortfall this season, combining cropland, crop condition, the AI early warning and population, with suggested surplus-to-shortfall links for redistribution.
 * **Early warning (AI):** a machine-learning model, retrained weekly on every district's seasons since 2002, gives the chance of a poor season two months ahead, with tested accuracy shown.
 
 ## 1.0 (November 2026)

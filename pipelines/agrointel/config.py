@@ -32,6 +32,7 @@ DS = {
     "isda": "ISDASOIL/Africa/v1",                       # iSDAsoil 30 m soil predictions (prefix)
     "burned": "MODIS/061/MCD64A1",                      # burned area, 500 m monthly, band BurnDate (day of year)
     "modis_lc": "MODIS/061/MCD12Q1",                    # land cover, 500 m annual; LC_Type1 12 cropland, 14 mosaic
+    "worldpop": "WorldPop/GP/100m/pop",                 # population, 100 m (filter country GHA, year)
 }
 HANSEN_LAST_YEAR = 2025         # last loss year in the Hansen version above
 
@@ -112,3 +113,5 @@ CROPS = [
     {"key": "cassava", "name": "Cassava",        "rain": (1000, 1800), "temp": (24, 30),   "los": 180, "annual": False, "ph": (5.0, 7.0), "depth": 50, "light": True},
     {"key": "cocoa",   "name": "Cocoa",          "rain": (1400, 2000), "temp": (22, 28),   "los": 210, "annual": False, "forest": True, "ph": (5.0, 7.5), "depth": 100},
 ]
+
+POP_YEAR = 2020  # WorldPop Global Project year used for people per district

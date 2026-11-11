@@ -411,3 +411,10 @@ def cropland_trend(fc) -> dict[str, dict]:
         img = ee.Image(img)
         bands += [img.eq(12).multiply(area).rename(f"c{y}"), img.eq(14).multiply(area).rename(f"m{y}")]
     return _reduce(ee.Image.cat(bands), fc, scale=500, reducer=ee.Reducer.sum(), tile_scale=4)
+
+
+def population(fc, year: int) -> dict[str, dict]:
+    """People per unit from WorldPop (100 m, unconstrained)."""
+    img = (ee.ImageCollection(DS["worldpop"]).filter(ee.Filter.eq("country", "GHA"))
+           .filter(ee.Filter.eq("year", year)).first())
+    return _reduce(ee.Image(img).select("population").rename("pop"), fc, scale=100, reducer=ee.Reducer.sum(), tile_scale=8)

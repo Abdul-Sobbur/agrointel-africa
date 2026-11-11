@@ -150,8 +150,8 @@ const ICON = {
 };
 const MODS = {
   overview: { n: 'Overview' },
-  crop: { n: 'Crop', full: 'Crop intelligence', col: 'green', ltr: 'A', subs: [['health', 'Vegetation health'], ['growth', 'Crop growth'], ['suit', 'Crop suitability'], ['soil', 'Soil and land'], ['season', 'Season assessment']],
-    items: ['Vegetation health on farmland', 'Crop growth through the season', 'Crop suitability: climate and soil', 'Soil profile (iSDAsoil)', 'Seasonal assessment'] },
+  crop: { n: 'Crop', full: 'Crop intelligence', col: 'green', ltr: 'A', subs: [['health', 'Vegetation health'], ['growth', 'Crop growth'], ['suit', 'Crop suitability'], ['soil', 'Soil and land'], ['season', 'Season assessment'], ['outlook', 'Harvest outlook']],
+    items: ['Vegetation health on farmland', 'Crop growth through the season', 'Crop suitability: climate and soil', 'Soil profile (iSDAsoil)', 'Seasonal assessment', 'Harvest outlook: surplus and shortfall map'] },
   climate: { n: 'Climate', full: 'Climate intelligence', col: 'gold', ltr: 'B', subs: [['fc', 'Forecast and advice'], ['rain', 'Rainfall'], ['anom', 'Anomalies'], ['temp', 'Temperature'], ['drought', 'Drought'], ['ind', 'Season indicators']],
     items: ['16-day forecast, heat alerts and farming advice', 'Rainfall vs 1991–2020 normal', 'Monthly anomalies', 'Temperature trend since 1996', 'Drought (SPI-3)', 'Onset, cessation, dry spells'] },
   water: { n: 'Water', full: 'Water intelligence', col: 'water', ltr: 'C', subs: [['surface', 'Surface water'], ['res', 'Reservoirs'], ['irr', 'Irrigation planner'], ['stress', 'Water stress']],
@@ -713,6 +713,7 @@ function methodsView() {
       <li><strong>Forecast advice:</strong> rules combine the forecast with the season's satellite record: a dry spell is 7 or more days under 1 mm; hot days reach 35 °C and severe heat 38 °C; heavy rain is 20 mm in a day and very heavy 50 mm; the weekly crop water shortfall is reference evapotranspiration minus forecast rain.</li>
       <li><strong>Irrigation planner:</strong> crop water need = FAO-56 crop coefficients (initial, mid, late stages) × MODIS potential evapotranspiration for each month, minus effective rainfall (USDA-SCS) from the 1991–2020 normal, divided by the method's efficiency. Water available = current reservoir area × usable depth × irrigation share, less open-water evaporation (1.05 × PET over 80% of the area). Depth and share are the user's assumptions.</li>
       <li><strong>Early warning (AI):</strong> a logistic regression trained every week on all district-seasons since 2002. Inputs known at the end of July: rainfall January–July against normal, SPI-3 in July, June–July greenness anomaly, how late the rains were, whether they had started, and one or two rainy seasons. Target: September–October greenness among the worst fifth of that district's years. Skill is measured by leaving out one whole year at a time.</li>
+      <li><strong>Harvest outlook:</strong> each district's cropland (ESA WorldCover 2021) is scaled by this season's crop condition (0.6× in the worst case to 1.4× in the best, from vegetation condition and the AI early warning) and divided by its population (WorldPop 2020), then compared with the national average. 150% or more is a likely surplus, under 50% a large shortfall. Each of the twelve largest shortfalls is linked to its two nearest likely-surplus districts. A planning index, not a production estimate.</li>
       <li><strong>Ask AgroIntel:</strong> the built-in assistant matches the place and topic in a question and answers from this site's data and the forecast. In AI mode, the same data goes to a large language model through a proxy, with instructions to use only the numbers provided.</li>
       <li><strong>Reservoirs:</strong> each outline is the largest water body in the JRC maximum water extent within a box drawn around the reservoir. Each month, Sentinel-1 VV backscatter below −16 dB (median of the month's passes) inside the outline plus 150 m gives the open-water area. "Usual" is the 2017–2023 average for that calendar month; "full" is the 95th percentile of all monthly areas. This is surface area, not stored volume, and floating weeds or wind can make it read low.</li>
       <li><strong>Soil ratings</strong> use the iSDAsoil 0–20 cm means, back-transformed per pixel and averaged over land that is not built-up or water. Bands: pH below 4.5 extremely, 4.5–5.5 strongly, 5.5–6.5 moderately acid; organic carbon below 6, 12 and 20 g/kg very low, low, moderate; total nitrogen below 0.5, 1 and 2 g/kg; extractable phosphorus below 10 and 25 ppm; potassium below 60 and 150 ppm; bedrock shallower than 50 and 100 cm.</li>
@@ -1312,6 +1313,72 @@ VIEWS.risk.ew = R => {
       <div><h3 class="chh">About the model</h3><p class="note" style="margin:0">Logistic regression trained on ${M.n.toLocaleString('en-GB')} district-seasons (${M.years[0]}–${M.years[1]}) from this platform's own satellite record. It is retrained every week. Scores are honest out-of-sample results: each year was predicted by a model trained on the other years only. It predicts greenness, not yield, and does not yet use seasonal rainfall forecasts.</p></div></div>`);
 };
 
+/* ---------------- harvest outlook: where food is likely in surplus or short, and where to move it ---------------- */
+const HO_CLS = [['Likely surplus', 1.5, '#16804A'], ['Self-sufficient', 1.0, '#8DD29A'], ['Some shortfall', 0.5, '#FAB633'], ['Large shortfall', -1, '#C2302A']];
+const hoClass = rel => !isNum(rel) ? ['No data', null, '#D5DBD3'] : HO_CLS.find(c => rel >= c[1]);
+function featCentre(f) {
+  const polys = f.geometry.type === 'MultiPolygon' ? f.geometry.coordinates : [f.geometry.coordinates]; let best = null, ba = -1;
+  polys.forEach(p => { const r = p[0]; let a = 0, cx = 0, cy = 0; r.forEach((q, i) => { const n = r[(i + 1) % r.length], c = q[0] * n[1] - n[0] * q[1]; a += c; cx += (q[0] + n[0]) * c; cy += (q[1] + n[1]) * c; });
+    if (Math.abs(a) > ba) { ba = Math.abs(a); best = [cy / (3 * a), cx / (3 * a)]; } });
+  return best;
+}
+const kmBetween = (a, b) => { const R = 6371, t = Math.PI / 180, dl = (b[0] - a[0]) * t, dn = (b[1] - a[1]) * t, x = Math.sin(dl / 2) ** 2 + Math.cos(a[0] * t) * Math.cos(b[0] * t) * Math.sin(dn / 2) ** 2; return 2 * R * Math.asin(Math.sqrt(x)); };
+const HO_CACHE = {};
+function harvestOutlook(year) {
+  if (HO_CACHE[year]) return HO_CACHE[year];
+  if (!D.sum.district || !D.dgeo) return null;
+  const M = D.model, rows = [];
+  D.sum.district.units.forEach(u => {
+    const b = u.years[String(year)]; if (!b || !isNum(u.population) || u.population <= 0 || !isNum(u.cropland_km2)) return;
+    const vci = isNum(b.vci) ? b.vci : 50;
+    const prob = M ? (Number(year) === M.current_year ? M.predicted[u.key] : ((M.backtest[u.key] || {})[String(year)] || [])[0]) : null;
+    const cond = isNum(prob) ? 0.6 * vci / 100 + 0.4 * (1 - prob) : vci / 100;
+    rows.push({ key: u.key, name: u.name, region: u.region, pop: u.population, crop: u.cropland_km2, cond, prob, vci,
+      prod: u.cropland_km2 * (0.6 + 0.8 * cond), prodNormal: u.cropland_km2 });
+  });
+  if (rows.length < 20) return null;
+  const tp = rows.reduce((a, r) => a + r.prod, 0), tpn = rows.reduce((a, r) => a + r.prodNormal, 0), pop = rows.reduce((a, r) => a + r.pop, 0);
+  const nat = tp / pop, natN = tpn / pop, centre = {};
+  D.dgeo.features.forEach(f => centre[f.properties.key] = featCentre(f));
+  rows.forEach(r => { r.rel = r.prod / r.pop / nat; r.relNormal = r.prodNormal / r.pop / natN; r.cls = hoClass(r.rel); r.balance = r.prod / nat - r.pop; r.c = centre[r.key]; });
+  const sur = rows.filter(r => r.rel >= 1.5 && r.c), def = rows.filter(r => r.rel < 0.5 && r.c && r.balance < 0).sort((a, b) => a.balance - b.balance);
+  const links = def.slice(0, 12).flatMap(d => sur.map(s => [s, kmBetween(d.c, s.c)]).sort((a, b) => a[1] - b[1]).slice(0, 2).map(([s, km]) => ({ from: s, to: d, km })));
+  return (HO_CACHE[year] = { rows, links, sur, def, pop });
+}
+const relTxt = r => r > 5 ? 'over 500%' : fx(r * 100, 0) + '%';
+const fmtPeople = n => Math.abs(n) >= 1e6 ? fx(Math.abs(n) / 1e6, 1) + ' million' : Math.abs(n) >= 1e3 ? Math.round(Math.abs(n) / 1e3) + ',000' : fx(Math.abs(n));
+VIEWS.crop.outlook = R => {
+  const H = harvestOutlook(R.year); if (!H) return P(verdict(chip('Not yet', 'neu'), 'The harvest outlook appears after the next pipeline run', 'It needs district population (WorldPop) and cropland.'));
+  const me = R.level === 'district' ? H.rows.find(r => r.key === R.key) : null;
+  const regRows = H.rows.filter(r => r.region === (R.level === 'district' ? R.region : R.key));
+  const cnt = c => H.rows.filter(r => r.cls[0] === c).length;
+  const head = me ? `${esc(me.name)}: ${me.cls[0].toLowerCase()} this season` : `${cnt('Likely surplus')} districts likely in surplus, ${cnt('Large shortfall')} facing large shortfalls`;
+  const sub = me ? `Local food crops can cover about ${relTxt(me.rel)} of what an average Ghanaian district's would per person (${fx(me.relNormal * 100, 0)}% in a normal season). ${me.balance < 0 ? `Food for roughly ${fmtPeople(me.balance)} people has to come from elsewhere.` : `Enough for roughly ${fmtPeople(me.balance)} more people than live here.`}`
+    : `Across Ghana, ${R.year}. Combines each district's farmland, how this season is going (vegetation condition${D.model ? ' and the AI early warning' : ''}) and its population.`;
+  const near = me && me.balance < 0 ? H.sur.filter(s => s.c && me.c).map(s => [s, kmBetween(me.c, s.c)]).sort((a, b) => a[1] - b[1]).slice(0, 3) : [];
+  const tr = (r, extra) => `<tr${me && r.key === me.key ? ' class="tot"' : ''}><td>${esc(r.name)}</td><td>${relTxt(r.rel)}</td><td>${chip(r.cls[0], r.cls[0] === 'Likely surplus' ? 'good' : r.cls[0] === 'Self-sufficient' ? 'mod' : r.cls[0] === 'Some shortfall' ? 'warn' : 'bad')}</td>${extra || ''}</tr>`;
+  return P(`${verdict(chip(me ? me.cls[0] : 'Harvest outlook', me ? (me.cls[0] === 'Likely surplus' ? 'good' : me.cls[0] === 'Large shortfall' ? 'bad' : me.cls[0] === 'Some shortfall' ? 'warn' : 'mod') : 'neu'), head, sub)}
+    ${near.length ? `<p class="basis"><b>Nearest likely-surplus districts:</b> ${near.map(([s, km]) => `${esc(s.name)} (${Math.round(km)} km)`).join(', ')}. Buying or redirecting food from these keeps transport short and supports local farmers.</p>` : ''}
+    <div id="m4" class="lmap tall"></div>
+    <div class="cmpkey">${HO_CLS.map(([l, , c]) => `<span><i style="background:${c}"></i>${l}</span>`).join('')}<span><i style="background:#2C6FB5;height:3px"></i>Suggested surplus → shortfall link</span></div>
+    <div class="cmp2"><div><h3 class="chh">Largest likely surpluses</h3><div class="rtable"><table class="rtab small"><thead><tr><th>District</th><th>Food per person</th><th>Outlook</th></tr></thead><tbody>${[...H.rows].sort((a, b) => b.balance - a.balance).slice(0, 8).map(r => tr(r)).join('')}</tbody></table></div></div>
+      <div><h3 class="chh">Where to send it</h3><div class="rtable"><table class="rtab small"><thead><tr><th>From (surplus)</th><th>To (shortfall)</th><th>Distance</th></tr></thead><tbody>${H.links.slice(0, 10).map(l => `<tr><td>${esc(l.from.name)}</td><td>${esc(l.to.name)}</td><td>${Math.round(l.km)} km</td></tr>`).join('')}</tbody></table></div></div></div>
+    ${regRows.length ? `<details class="more"><summary>All districts in ${esc((summary(R.level === 'district' ? R.region : R.key) || {}).name || '')} Region</summary><div class="rtable"><table class="rtab small"><thead><tr><th>District</th><th>Food per person</th><th>Outlook</th></tr></thead><tbody>${[...regRows].sort((a, b) => b.rel - a.rel).map(r => tr(r)).join('')}</tbody></table></div></details>` : ''}
+    <p class="note">“Food per person” compares each district's farmland per person, adjusted for this season's crop condition, with the national average (100%). It is an index for planning, not a production estimate: cropland is the ESA WorldCover 2021 map (tree crops and food grown under trees, common in the south, are under-counted), population is WorldPop ${D.meta.pop_year || 2020}, and trade, stocks and imports are not included. Links pair each of the largest shortfalls with its nearest likely-surplus districts by straight-line distance.</p>`);
+};
+AFTER.crop.outlook = R => {
+  const H = harvestOutlook(R.year), m = newMap('m4'); if (!H || !m) return;
+  m.options.zoomSnap = 0.25;
+  const byKey = Object.fromEntries(H.rows.map(r => [r.key, r]));
+  const lyr = L.geoJSON(D.dgeo, { style: f => { const r = byKey[f.properties.key]; return { color: '#fff', weight: .6, fillColor: r ? r.cls[2] : '#D5DBD3', fillOpacity: .85 }; },
+    onEachFeature: (f, l) => { const r = byKey[f.properties.key]; l.bindTooltip(`<b>${esc(f.properties.name)}</b><br>${r ? `${r.cls[0]} · food per person ${relTxt(r.rel)}` : 'No data'}`, { sticky: true }); } }).addTo(m);
+  m.fitBounds(lyr.getBounds(), { padding: [6, 6] });
+  H.links.forEach(l => L.polyline([l.from.c, l.to.c], { color: '#2C6FB5', weight: 2.2, opacity: .85, dashArray: '6 4' }).addTo(m));
+  H.links.forEach(l => L.circleMarker(l.to.c, { radius: 4, color: '#2C6FB5', fillColor: '#fff', fillOpacity: 1, weight: 2 }).addTo(m));
+  const df = R.level === 'district' && districtFeature(R.key);
+  if (df) L.geoJSON(df, { style: { color: '#10201A', weight: 3, fill: false } }).addTo(m);
+};
+
 /* ---------------- "Ask AgroIntel" assistant ----------------
    Two engines. Built-in: answers in English from this site's data and the forecast, no server needed.
    AI mode: when config.js sets assistantUrl, the same grounded context goes to a small proxy that asks a
@@ -1331,6 +1398,7 @@ function findPlace(q) {
 }
 const INTENTS = [
   ['predict', /\b(predict\w*|chance|likely|outlook|early warning|will .*season|poor season)\b/],
+  ['food', /\b(surplus|deficit|shortfall|shortage|food (supply|security)|enough food|market|redistribut\w*|harvest outlook)\b/],
   ['plant', /\b(plant|planting|sow|sowing|when.*(start|begin)|seed)\b/],
   ['heat', /\b(heat|hot|temperature|warm)\b/],
   ['rain', /\b(rain|rains|rainfall|wet|forecast|weather|storm)\b/],
@@ -1359,6 +1427,8 @@ function builtInAnswer(q, C) {
     if (it === 'plant' && S) { const a = fcAdvice(V, S).find(x => ['Hold off planting', 'Planting window', 'Wait for steadier rain', 'Dry spell ahead', 'Rain looks adequate', 'Dry season'].includes(x[1]));
       add(`<p><b>${esc(a ? a[1] : 'Planting')}.</b> ${esc(a ? a[2] : '')}${s.onset ? ` This year the rains became established on ${fmtDate(s.onset)}${isNum(s.onset_normal_doy) ? ` (usual: ${doyStr(s.onset_normal_doy)})` : ''}.` : ''}</p>`); }
     if (it === 'predict') { const E = ewFor(V); add(E && isNum(E.now) ? `<p><b>Early warning.</b> The AI model gives ${nm} a ${Math.round(E.now * 100)}% chance of a poor ${E.M.current_year} season (crop greenness in ${MONTH[E.M.target_months[0] - 1]}–${MONTH[E.M.target_months[1] - 1]} among the worst fifth of years), based on the season up to ${MONTH[E.M.cut_month - 1]}. Tested on past years, it was right ${Math.round(E.M.cv_accuracy * 100)}% of the time.</p>` : '<p>The early-warning model has no prediction for this place yet.</p>'); }
+    if (it === 'food') { const H = harvestOutlook(D.meta.year), r = H && (V.level === 'district' ? H.rows.find(x => x.key === V.key) : null);
+      add(H ? (r ? `<p><b>Harvest outlook.</b> ${esc(V.name)} looks <b>${r.cls[0].toLowerCase()}</b> this season: local food crops cover about ${relTxt(r.rel)} of the national average per person.${r.balance < 0 ? ` Nearest likely-surplus districts: ${esc(H.sur.filter(s => s.c && r.c).map(s => [s, kmBetween(r.c, s.c)]).sort((a, b) => a[1] - b[1]).slice(0, 3).map(([s, km]) => `${s.name} (${Math.round(km)} km)`).join(', '))}.` : ''}</p>` : `<p><b>Harvest outlook.</b> This season ${H.sur.length} districts look likely to have a food surplus and ${H.def.length} face large shortfalls. See Crop → Harvest outlook for the map and suggested links.</p>`) : '<p>The harvest outlook is not available yet.</p>'); }
     if (it === 'rain') { add(`<p><b>Rain.</b> So far this year ${nm} has had ${fx(rn.total)} mm, ${pctTxt(rn.anomaly_pct)} for January–${MONTH[rn.last_month - 1]}.${S ? ` The next 7 days: about ${fx(S.rain7)} mm on ${S.rainDays7} day${S.rainDays7 === 1 ? '' : 's'}${S.dry.len >= 7 ? `, then about ${S.dry.len} dry days from ${dayName(S.dry.start)}` : ''}.` : ''}</p>`); }
     if (it === 'heat' && S) add(`<p><b>Heat.</b> ${S.severe.length ? `${S.severe.length} day${S.severe.length > 1 ? 's' : ''} at 38 °C or more are forecast, peaking at ${fx(S.peak.tmax)} °C on ${dayName(S.peak.date)}. Water crops early morning or evening, shade and water livestock, and avoid hard work at midday.` : S.hot.length ? `${S.hot.length} hot day${S.hot.length > 1 ? 's' : ''} (35 °C or more), peak ${fx(S.peak.tmax)} °C on ${dayName(S.peak.date)}.` : `No days above 35 °C in the next two weeks (peak ${fx(S.peak.tmax)} °C).`}</p>`);
     if (it === 'drought') add(`<p><b>Drought.</b> The 3-month drought index is ${sgn(rn.spi3_latest, 1)} (${esc((rn.spi_class || '').toLowerCase())}) at the end of ${MONTH[rn.spi_ref_month - 1]}. Drought risk is ${fx(V.risk.drought)}/100.</p>`);

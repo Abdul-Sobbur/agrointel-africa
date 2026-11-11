@@ -21,6 +21,7 @@ Rainfall, drought, crop health, surface water, risk and farm monitoring for Ghan
 | Ask AgroIntel | “When should I plant in Tolon?” Answers from the data and forecast; optional AI mode in Twi, Dagbani, Hausa, Ewe, French | Site data, Open-Meteo, optional LLM proxy (`assistant/`, see docs/ASSISTANT.md) |
 | Forecast and advice | Rain, heat and dry spells for the next 16 days, and what to do about them | Open-Meteo |
 | Irrigation planner | How many hectares each reservoir can water, by crop and planting month | FAO-56, MODIS PET, Sentinel-1 reservoir area |
+| Harvest outlook | Which districts are likely to have a food surplus or shortfall, and where surplus could go | Cropland, crop condition, early warning, WorldPop |
 | Early warning (AI) | Chance of a poor season two months ahead, with tested accuracy | Logistic regression retrained weekly on 2002–present |
 | My workspace | Role-based view (extension, insurance, water, NGO, research, farming) with watched areas, own alert levels and CSV download | All of the above, stored in the browser |
 

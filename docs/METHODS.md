@@ -17,6 +17,7 @@
 | Reservoirs | JRC GSW 1.4 `max_extent` (outline), Sentinel-1 GRD (area) | 20–100 m, monthly, 2015– | Tono, Vea, Bontanga, Golinga, Weija, Barekese, Owabi, Kpong, Bui, Lake Volta |
 | Burned area | MODIS MCD64A1 (`MODIS/061/MCD64A1`) | 500 m, monthly | Area burned at least once per calendar year |
 | Cropland trend | MODIS MCD12Q1 (`MODIS/061/MCD12Q1`) LC_Type1 | 500 m, annual | Cropland (12) + half of cropland mosaic (14) |
+| Population | WorldPop Global Project (`WorldPop/GP/100m/pop`), 2020 | 100 m | Harvest outlook (food per person) |
 | Boundaries | geoBoundaries ADM1 and ADM2, Ghana (2019) | – | 16 regions, 260 districts |
 
 ## Methods
@@ -33,6 +34,7 @@
 * **Forecast and advice:** Open-Meteo daily forecast (16 days) at each district's centroid; dry spell ≥ 7 days < 1 mm, hot ≥ 35 °C, severe ≥ 38 °C, heavy rain ≥ 20 mm/day, very heavy ≥ 50 mm/day; weekly crop water shortfall = Σ ET0 − Σ rain over 7 days.
 * **Irrigation planner:** FAO-56 single crop coefficients (Kc ini/mid/end and stage lengths for tomato, onion, pepper, leafy vegetables, maize, paddy rice) × MODIS PET monthly normal; effective rain by USDA-SCS from the 1991–2020 normal; paddy adds 4 mm/day percolation and 150 mm land soaking; gross need = net / efficiency (50, 70, 90%). Available water = area × usable depth × share − 1.05 × PET × 0.8 × area over the season.
 * **Early warning (AI):** L2-regularised logistic regression (Newton's method, numpy) on district-seasons 2002–last year; six standardised features at end of July; target = Sep–Oct NDVI anomaly in the lowest quintile of the district's own years; skill from leave-one-year-out cross-validation (AUC, accuracy, hit rate in the top 20% of predictions). Retrained every run; output `web/data/model.json`.
+* **Harvest outlook:** index = cropland km² × (0.6 + 0.8 × condition) ÷ population, relative to the national total; condition = 0.6 × VCI/100 + 0.4 × (1 − early-warning probability). Classes: ≥ 1.5 likely surplus, 1–1.5 self-sufficient, 0.5–1 some shortfall, < 0.5 large shortfall. Population: WorldPop GP 100 m, 2020 (`config.POP_YEAR`). Links: the 12 largest shortfalls (people-equivalents) to their 2 nearest likely-surplus districts by great-circle distance. Not a production estimate; trade, stocks and tree-grown food are not included.
 * **Surface water:** median Sentinel-1 VV < −16 dB within the JRC maximum water extent, summed by region.
 * **Crop suitability:** trapezoid scores for rainfall (growing-season rainfall for annual crops, annual rainfall for perennials), mean temperature and rainy-season length against simplified FAO ECOCROP ranges; FAO classes S1 (≥ 80), S2 (≥ 60), S3 (≥ 40), N. Soil multiplies the climate score by 0.7 + 0.3 × soil fit, where soil fit combines topsoil pH against each crop's range, depth to bedrock against its rooting need, and a 0.6 penalty on heavy clays for groundnut, yam and cassava. Fertility (N, P, K, organic carbon) is reported but not scored, since it can be corrected.
 * **Risk indices (0–100):** transparent heuristics in `pipelines/agrointel/analysis.py::risk_scores`. Composite = 35% drought + 25% production + 20% flood + 20% degradation.

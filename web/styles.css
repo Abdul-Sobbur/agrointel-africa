@@ -558,3 +558,6 @@ form.reg{display:grid;gap:12px;grid-template-columns:repeat(auto-fit,minmax(180p
 @media print{.chat-fab,.chat{display:none!important}}
 .ewbars .hb{grid-template-columns:210px minmax(0,1fr)}
 @media (max-width:520px){.ewbars .hb{grid-template-columns:140px minmax(0,1fr)}}
+.lmap.tall{height:min(560px,70vh)}
+details.more summary{cursor:pointer;font-weight:700;margin:6px 0}
+.cmp2 .rtable .rtab{min-width:0}

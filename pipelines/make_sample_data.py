@@ -182,6 +182,16 @@ class FakeEarth(SimpleNamespace):
             out[k] = row
         return out
 
+    def population(self, fc, year):
+        out = {}
+        for k, g in _units(fc):
+            u = _rng(k, "pop").random()
+            city = any(w in k for w in ("metropolitan", "accra", "kumasi", "tema", "tamale", "kasoa", "ga-"))
+            out[k] = {"pop": (350000 + 900000 * u) if city else (40000 + 160000 * u)}
+            if k == g:
+                out[k]["pop"] *= 12
+        return out
+
     def era5_annual_temps(self, fc, first, last):
         res = {}
         for k, g in _units(fc):

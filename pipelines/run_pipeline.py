@@ -28,7 +28,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from agrointel import analysis as A  # noqa: E402
 from agrointel import earth as E  # noqa: E402
-from agrointel.config import (CACHE_DIR, CROPLAND_MIN_PCT, HANSEN_LAST_YEAR, DISTRICTS_GEOJSON, FARMS_GEOJSON,  # noqa: E402
+from agrointel.config import (CACHE_DIR, CROPLAND_MIN_PCT, HANSEN_LAST_YEAR, POP_YEAR, DISTRICTS_GEOJSON, FARMS_GEOJSON,  # noqa: E402
                               FIRST_YEAR, HISTORY_BUDGET_MIN, LANDCOVER, RESERVOIR_BASE, RESERVOIR_FIRST_YEAR, RESERVOIRS, NDVI_BASE_START, NORMAL_END,
                               NORMAL_START, REGIONS, REGIONS_GEOJSON, SEASON_BASE, TEMP_TREND_START, WEB_DATA)
 
@@ -173,6 +173,7 @@ def fetch_level(level, geo, keys, regimes, year, last_month, latest, nyear, nmon
             loss = {**got, "_last": HANSEN_LAST_YEAR}
             save(f"forest_loss{sfx}.json", loss)
     out["loss"] = loss
+    out["pop"] = static_cache(f"population{sfx}.json", f"{level} population", lambda f: E.population(f, POP_YEAR), fc, rebuild)
     out["crop_trend"] = static_cache(f"cropland_modis{sfx}.json", f"{level} cropland trend", E.cropland_trend, fc, rebuild)
     burned, burned_to = soft(f"{level} burned area", E.burned_area, fc, FIRST_YEAR, year, default=({}, None))
     log.info("%s burned area: %d units, data to %s", level, len(burned), burned_to)
@@ -396,6 +397,7 @@ def build_unit(k, data, regime, forest, year, last_month, latest, wy, wm):
         "water": {"month": f"{wy}-{wm:02d}", "current_km2": r(w.get("current"), 1), "normal_km2": r(wnorm, 1),
                   "pct": r(wpct, 0), "permanent_km2": r(w.get("permanent"), 1)},
         "suitability": suit, "soil": soil, "land": land, "change": land_change(k, data, year),
+        "population": r(data["pop"].get(k, {}).get("pop"), 0),
     }
     return static, years
 
@@ -453,7 +455,8 @@ def main() -> None:
                     "regime": meta["regime"], "forest": meta["forest"], **static, "years": years}
             (out_dir / f"{k}.json").write_text(json.dumps(unit, separators=(",", ":")))
             full_units.setdefault(level, []).append(unit)
-            units.append({"key": k, "name": name, "region": parent[k], "years": {
+            units.append({"key": k, "name": name, "region": parent[k], "population": static.get("population"),
+                          "cropland_km2": (static.get("land") or {}).get("cropland_km2"), "years": {
                 y: {"rain_anom": b["rain"]["anomaly_pct"], "vci": b["ndvi"]["vci"], "spi3": b["rain"]["spi3_ref"],
                     "risk": {x: b["risk"][x] for x in ("composite", "drought", "flood")}, "status": b["status"]}
                 for y, b in years.items()}})
@@ -527,7 +530,7 @@ def main() -> None:
         "year": year, "last_month": last_month, "rain_latest": latest.isoformat(),
         "first_year": FIRST_YEAR, "districts": "district" in summaries,
         "maps": maps_meta, "farms": bool(farms_out), "regions": regions_now,
-        "reservoirs": (WEB_DATA / "reservoirs.json").exists(), "model": (WEB_DATA / "model.json").exists(),
+        "reservoirs": (WEB_DATA / "reservoirs.json").exists(), "model": (WEB_DATA / "model.json").exists(), "pop_year": POP_YEAR,
     }, separators=(",", ":")))
     log.info("done")
 
