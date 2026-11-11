@@ -350,3 +350,128 @@ def reservoir_stats(series: dict[str, float], base: tuple[int, int]) -> dict | N
             "fill_pct": round(min(area / full, 1.2) * 100) if full else None, "status": status,
             "monthly_normal": monthly_normal,
             "annual": {y: {"min": round(min(v), 2), "max": round(max(v), 2), "n": len(v)} for y, v in years.items()}}
+
+
+# ---------------------------------------------------------------- early-warning model (machine learning)
+EW_CUT = 7               # features use data to the end of July ...
+EW_TARGET = (9, 10)      # ... to predict crop greenness in September-October
+EW_FEATURES = ["rain_anom", "spi3", "ndvi_anom", "onset_delay", "late_flag", "bimodal"]
+EW_LABELS = {"rain_anom": "Rainfall Jan–Jul vs normal", "spi3": "Drought index (SPI-3) in July",
+             "ndvi_anom": "Greenness Jun–Jul vs normal", "onset_delay": "Days the rains were late",
+             "late_flag": "Rains not established by July", "bimodal": "Two rainy seasons (south)"}
+
+
+def _doy(iso: str) -> int:
+    d = dt.date.fromisoformat(iso)
+    return d.timetuple().tm_yday
+
+
+def ew_features(unit: dict, year: str) -> dict | None:
+    """Season indicators known at the end of July, for one unit and year."""
+    y = unit["years"].get(year)
+    if not y:
+        return None
+    rain, nrm, ndvi, nn = y["rain"]["monthly"], unit["rain_normal"], y["ndvi"]["monthly"], unit["ndvi_normal"]
+    if any(v is None for v in rain[:EW_CUT]) or not nrm:
+        return None
+    tot, ntot = sum(rain[:EW_CUT]), sum(nrm[:EW_CUT])
+    nd = [ndvi[m] - nn[m] for m in (EW_CUT - 2, EW_CUT - 1) if ndvi[m] is not None and nn[m] is not None]
+    spi = y["rain"]["spi3"][EW_CUT - 1]
+    on, on_n = y["season"].get("onset"), unit["season_normal"].get("onset_doy")
+    cut_doy = _doy(f"{year}-{EW_CUT:02d}-28")
+    late = not on or _doy(on) > cut_doy
+    delay = (cut_doy if late else _doy(on)) - on_n if on_n else 0.0
+    if not nd or spi is None:
+        return None
+    return {"rain_anom": (tot / ntot - 1) * 100 if ntot else 0.0, "spi3": float(spi), "ndvi_anom": float(np.mean(nd)) * 100,
+            "onset_delay": float(np.clip(delay, -60, 90)), "late_flag": float(late), "bimodal": float(unit.get("regime") == "bi")}
+
+
+def ew_target(unit: dict, years: list[str]) -> dict[str, float]:
+    """1 when Sep-Oct greenness is among the worst fifth of the unit's own years, else 0."""
+    nn, vals = unit["ndvi_normal"], {}
+    for yr in years:
+        nd = unit["years"].get(yr, {}).get("ndvi", {}).get("monthly")
+        if not nd:
+            continue
+        a = [nd[m - 1] - nn[m - 1] for m in EW_TARGET if nd[m - 1] is not None and nn[m - 1] is not None]
+        if len(a) == len(EW_TARGET):
+            vals[yr] = float(np.mean(a))
+    if len(vals) < 10:
+        return {}
+    cut = np.percentile(list(vals.values()), 20)
+    return {yr: float(v <= cut) for yr, v in vals.items()}
+
+
+def fit_logistic(X: np.ndarray, y: np.ndarray, l2: float = 1.0, iters: int = 50) -> np.ndarray:
+    """L2-regularised logistic regression by Newton's method (intercept in column 0, not penalised)."""
+    w = np.zeros(X.shape[1])
+    pen = np.full(X.shape[1], l2)
+    pen[0] = 0.0
+    for _ in range(iters):
+        p = 1 / (1 + np.exp(-X @ w))
+        g = X.T @ (p - y) + pen * w
+        H = (X * (p * (1 - p))[:, None]).T @ X + np.diag(pen)
+        step = np.linalg.solve(H, g)
+        w -= step
+        if np.max(np.abs(step)) < 1e-7:
+            break
+    return w
+
+
+def auc(y: np.ndarray, s: np.ndarray) -> float | None:
+    pos, neg = s[y == 1], s[y == 0]
+    if not len(pos) or not len(neg):
+        return None
+    ranks = np.argsort(np.argsort(np.concatenate([pos, neg]))) + 1
+    return float((ranks[:len(pos)].sum() - len(pos) * (len(pos) + 1) / 2) / (len(pos) * len(neg)))
+
+
+def train_early_warning(units: list[dict], current_year: int) -> dict | None:
+    """Fit on all complete past seasons, validate leaving one whole year out at a time, predict this year."""
+    past = [str(y) for y in range(2002, current_year)]
+    rows = []
+    for u in units:
+        tgt = ew_target(u, past)
+        for yr, lab in tgt.items():
+            f = ew_features(u, yr)
+            if f:
+                rows.append((u["key"], yr, [f[k] for k in EW_FEATURES], lab))
+    if len(rows) < 200:
+        return None
+    Xr = np.array([r[2] for r in rows])
+    yv = np.array([r[3] for r in rows])
+    yrs = np.array([r[1] for r in rows])
+    mu, sd = Xr.mean(0), Xr.std(0)
+    sd[sd == 0] = 1
+    X = np.column_stack([np.ones(len(Xr)), (Xr - mu) / sd])
+    oof = np.zeros(len(yv))
+    for yr in sorted(set(yrs)):  # leave-one-year-out: the model never sees the season it is scored on
+        tr = yrs != yr
+        w = fit_logistic(X[tr], yv[tr])
+        oof[~tr] = 1 / (1 + np.exp(-X[~tr] @ w))
+    w = fit_logistic(X, yv)
+    base = float(yv.mean())
+    hits = float(np.mean((oof >= 0.5) == (yv == 1)))
+    top = oof >= np.percentile(oof, 80)
+    by_year = {}
+    for yr in sorted(set(yrs)):
+        m = yrs == yr
+        by_year[yr] = {"predicted": round(float(oof[m].mean()), 3), "observed": round(float(yv[m].mean()), 3)}
+    pred_now, backtest = {}, {}
+    for (k, yr, _, lab), p in zip(rows, oof):
+        backtest.setdefault(k, {})[yr] = [round(float(p), 3), int(lab)]
+    for u in units:
+        f = ew_features(u, str(current_year))
+        if f:
+            x = np.concatenate([[1.0], (np.array([f[k] for k in EW_FEATURES]) - mu) / sd])
+            pred_now[u["key"]] = round(float(1 / (1 + np.exp(-x @ w))), 3)
+    return {
+        "cut_month": EW_CUT, "target_months": list(EW_TARGET), "features": EW_FEATURES, "labels": EW_LABELS,
+        "coef": [round(float(c), 4) for c in w[1:]], "intercept": round(float(w[0]), 4),
+        "mean": [round(float(m), 4) for m in mu], "std": [round(float(s), 4) for s in sd],
+        "n": int(len(yv)), "years": [min(yrs), max(yrs)], "base_rate": round(base, 3),
+        "cv_auc": None if auc(yv, oof) is None else round(auc(yv, oof), 3), "cv_accuracy": round(hits, 3),
+        "top20_hit_rate": round(float(yv[top].mean()), 3) if top.any() else None,
+        "by_year": by_year, "current_year": current_year, "predicted": pred_now, "backtest": backtest,
+    }

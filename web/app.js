@@ -152,12 +152,12 @@ const MODS = {
   overview: { n: 'Overview' },
   crop: { n: 'Crop', full: 'Crop intelligence', col: 'green', ltr: 'A', subs: [['health', 'Vegetation health'], ['growth', 'Crop growth'], ['suit', 'Crop suitability'], ['soil', 'Soil and land'], ['season', 'Season assessment']],
     items: ['Vegetation health on farmland', 'Crop growth through the season', 'Crop suitability: climate and soil', 'Soil profile (iSDAsoil)', 'Seasonal assessment'] },
-  climate: { n: 'Climate', full: 'Climate intelligence', col: 'gold', ltr: 'B', subs: [['rain', 'Rainfall'], ['anom', 'Anomalies'], ['temp', 'Temperature'], ['drought', 'Drought'], ['ind', 'Season indicators']],
-    items: ['Rainfall vs 1991–2020 normal', 'Monthly anomalies', 'Temperature trend since 1996', 'Drought (SPI-3)', 'Onset, cessation, dry spells'] },
-  water: { n: 'Water', full: 'Water intelligence', col: 'water', ltr: 'C', subs: [['surface', 'Surface water'], ['res', 'Reservoirs'], ['stress', 'Water stress']],
-    items: ['Surface water from radar', 'Reservoir levels: Tono, Vea, Bontanga, Weija, Bui, Volta…', 'Extent vs 2017–2021 baseline', 'Water balance (rain − PET)', 'Aridity index'] },
-  risk: { n: 'Risk', full: 'Agricultural risk', col: 'red', ltr: 'D', subs: [['summary', 'Risk summary'], ['map', 'Vegetation anomaly map'], ['change', 'Land change and fires']],
-    items: ['Drought exposure', 'Flood exposure', 'Land degradation trend', 'Production risk', 'Forest loss, fires and cropland change'] },
+  climate: { n: 'Climate', full: 'Climate intelligence', col: 'gold', ltr: 'B', subs: [['fc', 'Forecast and advice'], ['rain', 'Rainfall'], ['anom', 'Anomalies'], ['temp', 'Temperature'], ['drought', 'Drought'], ['ind', 'Season indicators']],
+    items: ['16-day forecast, heat alerts and farming advice', 'Rainfall vs 1991–2020 normal', 'Monthly anomalies', 'Temperature trend since 1996', 'Drought (SPI-3)', 'Onset, cessation, dry spells'] },
+  water: { n: 'Water', full: 'Water intelligence', col: 'water', ltr: 'C', subs: [['surface', 'Surface water'], ['res', 'Reservoirs'], ['irr', 'Irrigation planner'], ['stress', 'Water stress']],
+    items: ['Surface water from radar', 'Reservoir levels: Tono, Vea, Bontanga, Weija, Bui, Volta…', 'Irrigation planner: hectares each reservoir can water', 'Extent vs 2017–2021 baseline', 'Water balance (rain − PET)', 'Aridity index'] },
+  risk: { n: 'Risk', full: 'Agricultural risk', col: 'red', ltr: 'D', subs: [['summary', 'Risk summary'], ['ew', 'Early warning (AI)'], ['map', 'Vegetation anomaly map'], ['change', 'Land change and fires']],
+    items: ['AI early warning: chance of a poor season', 'Drought exposure', 'Flood exposure', 'Land degradation trend', 'Production risk', 'Forest loss, fires and cropland change'] },
   farms: { n: 'Farms', full: 'Farm management', col: 'kblack', ltr: 'E', subs: [['trace', 'Map a farm'], ['list', 'Monitored farms']],
     items: ['Trace boundaries on imagery', 'Area and perimeter', 'Sentinel-2 field monitoring', 'Forest-loss check since 2021'] }
 };
@@ -271,6 +271,7 @@ async function route() {
   const inApp = !!MODS[h] || h === 'methods' || h === 'report' || h === 'workspace' || h === 'compare';
   if (h !== 'workspace') state.wsEdit = false;
   document.body.classList.toggle('reporting', h === 'report');
+  document.body.classList.toggle('in-app', inApp);
   $('#home').hidden = inApp; $('#app').hidden = !inApp;
   clearMaps();
   if (!inApp) { window.scrollTo(0, 0); return; }
@@ -695,6 +696,7 @@ function methodsView() {
       <li><strong>Water:</strong> Sentinel-1 radar (VV backscatter below −16 dB) within the JRC Global Surface Water maximum extent; JRC occurrence for permanent water.</li>
       <li><strong>Forest:</strong> Hansen Global Forest Change v1.13 (tree cover 2000, loss year to 2025).</li>
       <li><strong>Land cover:</strong> ESA WorldCover 2021 v200, 10 m (CC BY 4.0).</li>
+      <li><strong>Forecast:</strong> Open-Meteo 16-day forecast (CC BY 4.0) for the centre of each district: rain, maximum and minimum temperature, reference evapotranspiration.</li>
       <li><strong>Land change and fires:</strong> Hansen Global Forest Change (tree-cover loss per year), MODIS MCD64A1 burned area (500 m, monthly), MODIS MCD12Q1 land cover (500 m, annual) for cropland.</li>
       <li><strong>Reservoirs:</strong> outlines from the JRC Global Surface Water maximum extent (1984–2021); monthly water area from Sentinel-1 radar since 2015.</li>
       <li><strong>Soil:</strong> iSDAsoil Africa v1, 30 m topsoil predictions (CC BY 4.0).</li>
@@ -708,6 +710,10 @@ function methodsView() {
       <li><strong>Vegetation condition (VCI)</strong> is a standardised form of Kogan's (1995) index: how far this month's regional NDVI is from the same month in other years since 2001, scaled to 0–100 where 50 is typical. Changes smaller than the satellite's noise (0.04 NDVI) cannot reach the extremes. Only complete months are used.</li>
       <li><strong>Farmland-only vegetation:</strong> a 250 m MODIS pixel counts as farmland when at least 30% of the 10 m WorldCover pixels inside it are cropland. Where cropland covers at least 3% of a region or district, its NDVI and VCI use farmland pixels only; elsewhere (mostly cocoa and forest areas) they use all vegetation. The greening trend always uses all land.</li>
       <li><strong>Crop suitability</strong> scores growing-season rainfall (annual crops) or annual rainfall (perennials), mean temperature and rainy-season length against simplified FAO ECOCROP ranges, then lowers the score by up to 30% for topsoil pH outside the crop's range, soil shallower than it needs, or heavy clay for root and pod crops.</li>
+      <li><strong>Forecast advice:</strong> rules combine the forecast with the season's satellite record: a dry spell is 7 or more days under 1 mm; hot days reach 35 °C and severe heat 38 °C; heavy rain is 20 mm in a day and very heavy 50 mm; the weekly crop water shortfall is reference evapotranspiration minus forecast rain.</li>
+      <li><strong>Irrigation planner:</strong> crop water need = FAO-56 crop coefficients (initial, mid, late stages) × MODIS potential evapotranspiration for each month, minus effective rainfall (USDA-SCS) from the 1991–2020 normal, divided by the method's efficiency. Water available = current reservoir area × usable depth × irrigation share, less open-water evaporation (1.05 × PET over 80% of the area). Depth and share are the user's assumptions.</li>
+      <li><strong>Early warning (AI):</strong> a logistic regression trained every week on all district-seasons since 2002. Inputs known at the end of July: rainfall January–July against normal, SPI-3 in July, June–July greenness anomaly, how late the rains were, whether they had started, and one or two rainy seasons. Target: September–October greenness among the worst fifth of that district's years. Skill is measured by leaving out one whole year at a time.</li>
+      <li><strong>Ask AgroIntel:</strong> the built-in assistant matches the place and topic in a question and answers from this site's data and the forecast. In AI mode, the same data goes to a large language model through a proxy, with instructions to use only the numbers provided.</li>
       <li><strong>Reservoirs:</strong> each outline is the largest water body in the JRC maximum water extent within a box drawn around the reservoir. Each month, Sentinel-1 VV backscatter below −16 dB (median of the month's passes) inside the outline plus 150 m gives the open-water area. "Usual" is the 2017–2023 average for that calendar month; "full" is the 95th percentile of all monthly areas. This is surface area, not stored volume, and floating weeds or wind can make it read low.</li>
       <li><strong>Soil ratings</strong> use the iSDAsoil 0–20 cm means, back-transformed per pixel and averaged over land that is not built-up or water. Bands: pH below 4.5 extremely, 4.5–5.5 strongly, 5.5–6.5 moderately acid; organic carbon below 6, 12 and 20 g/kg very low, low, moderate; total nitrogen below 0.5, 1 and 2 g/kg; extractable phosphorus below 10 and 25 ppm; potassium below 60 and 150 ppm; bedrock shallower than 50 and 100 cm.</li>
       <li><strong>Past seasons</strong> (2001 onward) use full-year rainfall, SPI-3 at the end of the main season, and vegetation condition averaged over the growing season. Surface water and map images cover the latest month only.</li>
@@ -1123,6 +1129,311 @@ async function compareView() {
     <p class="disclaimer">Indicators are computed automatically from open satellite and climate data and have not been validated in the field.</p>`;
 }
 
+/* ---------------- forecast, heat and farming advice (Open-Meteo, CC BY 4.0) ---------------- */
+function unitCentre(R) {
+  const f = R.level === 'district' ? districtFeature(R.key) : regionFeature(R.key); if (!f) return null;
+  const polys = f.geometry.type === 'MultiPolygon' ? f.geometry.coordinates : [f.geometry.coordinates];
+  let best = null, ba = -1;
+  polys.forEach(p => { const r = p[0]; let a = 0, cx = 0, cy = 0;
+    r.forEach((q, i) => { const n = r[(i + 1) % r.length], c = q[0] * n[1] - n[0] * q[1]; a += c; cx += (q[0] + n[0]) * c; cy += (q[1] + n[1]) * c; });
+    if (Math.abs(a) > ba) { ba = Math.abs(a); best = [cy / (3 * a), cx / (3 * a)]; } });
+  return best && best.map(v => Math.round(v * 100) / 100);
+}
+const FC_CACHE = {};
+async function getForecast(lat, lon) {
+  const k = `${lat},${lon}`, now = Date.now();
+  if (FC_CACHE[k] && now - FC_CACHE[k].t < 3600e3) return FC_CACHE[k].d;
+  try { const s = JSON.parse(sessionStorage.getItem('fc:' + k) || 'null'); if (s && now - s.t < 3600e3) { FC_CACHE[k] = s; return s.d; } } catch (e) { /* storage unavailable */ }
+  const url = `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&daily=temperature_2m_max,temperature_2m_min,precipitation_sum,precipitation_probability_max,et0_fao_evapotranspiration&timezone=Africa%2FAccra&forecast_days=16`;
+  const r = await fetch(url); if (!r.ok) throw new Error('forecast service ' + r.status);
+  const j = await r.json(), d = j.daily;
+  const days = d.time.map((t, i) => ({ date: t, tmax: d.temperature_2m_max[i], tmin: d.temperature_2m_min[i], rain: d.precipitation_sum[i] ?? 0, prob: d.precipitation_probability_max[i], et0: d.et0_fao_evapotranspiration[i] }));
+  FC_CACHE[k] = { t: now, d: days };
+  try { sessionStorage.setItem('fc:' + k, JSON.stringify(FC_CACHE[k])); } catch (e) { /* storage unavailable */ }
+  return days;
+}
+const dayName = iso => new Date(iso + 'T12:00:00Z').toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short', timeZone: 'UTC' });
+function fcSummary(days) {
+  const w = days.slice(0, 7), sum = (a, k) => a.reduce((s, d) => s + (isNum(d[k]) ? d[k] : 0), 0);
+  let run = 0, best = { len: 0, start: null }, start = null;
+  days.forEach(d => { if (d.rain < 1) { if (!run) start = d.date; run++; if (run > best.len) best = { len: run, start }; } else run = 0; });
+  const hot = days.filter(d => d.tmax >= 35), severe = days.filter(d => d.tmax >= 38), peak = days.reduce((a, d) => d.tmax > a.tmax ? d : a, days[0]);
+  return { rain7: sum(w, 'rain'), rainDays7: w.filter(d => d.rain >= 1).length, rain16: sum(days, 'rain'), et07: sum(w, 'et0'),
+    dry: best, hot, severe, peak, heavy: days.slice(0, 5).find(d => d.rain >= 20), flood: days.find(d => d.rain >= 50) };
+}
+function fcAdvice(R, S) {
+  const out = [], m = new Date().getUTCMonth() + 1, doy = Math.floor((Date.now() - Date.UTC(new Date().getUTCFullYear(), 0, 0)) / 864e5);
+  const s = R.season || {}, onN = s.onset_normal_doy, ceN = s.cessation_normal_doy;
+  const inSeason = s.onset && !s.cessation, preSeason = R.isCurrent && !s.onset && isNum(onN) && doy >= onN - 30 && doy <= onN + 75;
+  const drySeason = !inSeason && !preSeason;
+  if (preSeason) {
+    if (S.dry.len >= 7) out.push(['warn', 'Hold off planting', `A dry spell of about ${S.dry.len} days is forecast from ${dayName(S.dry.start)}. Seedlings planted now could die before the rains settle.`]);
+    else if (S.rain7 >= 20) out.push(['good', 'Planting window', `About ${fx(S.rain7)} mm of rain is forecast this week and no long dry spell after it. Plant once the topsoil is moist to a hand's depth.`]);
+    else out.push(['mod', 'Wait for steadier rain', `Only ${fx(S.rain7)} mm is forecast this week. The rains usually settle around ${doyStr(onN)} here.`]);
+  } else if (inSeason) {
+    if (S.dry.len >= 7) out.push(['warn', 'Dry spell ahead', `About ${S.dry.len} dry days from ${dayName(S.dry.start)}. Mulch, weed early and irrigate high-value crops if you can.`]);
+    else out.push(['good', 'Rain looks adequate', `${fx(S.rain7)} mm on ${S.rainDays7} days forecast this week.`]);
+  } else {
+    out.push(['mod', 'Dry season', `The main rains usually ${isNum(ceN) && doy > ceN ? `ended around ${doyStr(ceN)}` : 'have not started'}. Any crop now needs irrigation: see Water → Irrigation planner.`]);
+  }
+  if (S.flood) out.push(['bad', 'Very heavy rain', `${fx(S.flood.rain)} mm forecast on ${dayName(S.flood.date)}. Low-lying fields and riverbanks may flood; clear drains and move stored grain up.`]);
+  if (S.heavy) out.push(['warn', 'Delay fertiliser and spraying', `Heavy rain (${fx(S.heavy.rain)} mm) on ${dayName(S.heavy.date)} would wash it off.`]);
+  if (S.severe.length) out.push(['bad', 'Severe heat', `${S.severe.length} day${S.severe.length > 1 ? 's' : ''} at 38 °C or more, peaking at ${fx(S.peak.tmax)} °C on ${dayName(S.peak.date)}. Maize and tomato flowers can fail in this heat: irrigate early morning or evening, give livestock shade and water, avoid field work at midday.`]);
+  else if (S.hot.length) out.push(['warn', 'Hot days', `${S.hot.length} day${S.hot.length > 1 ? 's' : ''} at 35 °C or more (peak ${fx(S.peak.tmax)} °C). Water in the cool hours and watch for wilting.`]);
+  const def = S.et07 - S.rain7;
+  out.push([def > 15 ? 'warn' : 'neu', 'Crop water this week', def > 0 ? `A crop in full leaf uses about ${fx(S.et07)} mm this week and the forecast rain gives ${fx(S.rain7)} mm, a shortfall of about ${fx(def)} mm. That is ${fx(def)} litres per square metre, or ${fx(def * 10)} m³ per hectare.` : `Forecast rain (${fx(S.rain7)} mm) covers what a crop in full leaf uses this week (${fx(S.et07)} mm).`]);
+  return out;
+}
+function fcChart(days) {
+  const W = 760, H = 230, L = 40, R = 40, T = 14, B = 34, iw = W - L - R, ih = H - T - B, band = iw / days.length;
+  const rmx = niceMax(Math.max(20, ...days.map(d => d.rain))), tmn = 15, tmx = 45, ty = v => T + ih - (v - tmn) / (tmx - tmn) * ih; let s = '';
+  for (let k = 0; k <= 2; k++) { const y = T + ih - ih * k / 2; s += `<line class="grid-l" x1="${L}" x2="${W - R}" y1="${y}" y2="${y}"/><text class="ax" x="${L - 5}" y="${y + 3}" text-anchor="end">${Math.round(rmx * k / 2)}</text><text class="ax" x="${W - R + 5}" y="${y + 3}">${tmn + (tmx - tmn) * k / 2}°</text>`; }
+  s += `<line x1="${L}" x2="${W - R}" y1="${ty(35)}" y2="${ty(35)}" stroke="var(--bad)" stroke-dasharray="4 3" stroke-width="1.2"/><text class="ax" x="${W - R - 4}" y="${ty(35) - 4}" text-anchor="end" fill="var(--bad)">35 °C heat line</text>`;
+  days.forEach((d, i) => { const x = L + band * i, h = ih * d.rain / rmx;
+    s += `<rect x="${(x + band * .2).toFixed(1)}" y="${(T + ih - h).toFixed(1)}" width="${(band * .6).toFixed(1)}" height="${Math.max(h, .5).toFixed(1)}" rx="2" class="m-wet"${i >= 7 ? ' opacity=".55"' : ''}><title>${dayName(d.date)}: ${fx(d.rain, 1)} mm, ${fx(d.tmax)} °C</title></rect>`;
+    const nm = new Date(d.date + 'T12:00:00Z');
+    s += `<text class="ax" x="${(x + band / 2).toFixed(1)}" y="${H - 18}" text-anchor="middle">${nm.toLocaleDateString('en-GB', { weekday: 'narrow', timeZone: 'UTC' })}</text><text class="ax" x="${(x + band / 2).toFixed(1)}" y="${H - 6}" text-anchor="middle">${nm.getUTCDate()}</text>`; });
+  s += `<path d="${days.map((d, i) => (i ? 'L' : 'M') + (L + band * (i + .5)).toFixed(1) + ' ' + ty(Math.min(tmx, Math.max(tmn, d.tmax))).toFixed(1)).join('')}" fill="none" stroke="var(--bad)" stroke-width="2.2"/>`;
+  days.forEach((d, i) => s += `<circle cx="${(L + band * (i + .5)).toFixed(1)}" cy="${ty(Math.min(tmx, Math.max(tmn, d.tmax))).toFixed(1)}" r="${d.tmax >= 35 ? 3.6 : 2.4}" fill="var(--bad)"/>`);
+  s += `<text class="ax" x="${L}" y="${T - 3}">mm</text>`;
+  return svg(W, H, s, '16-day forecast: daily rain and maximum temperature');
+}
+VIEWS.climate.fc = R => P(`<div id="fcBox"><p class="loading">Loading the forecast…</p></div>`);
+AFTER.climate.fc = async R => {
+  const box = $('#fcBox'), c = unitCentre(R);
+  if (!c) { box.innerHTML = '<p class="loading">No location for this area.</p>'; return; }
+  let days; try { days = await getForecast(c[0], c[1]); } catch (e) { box.innerHTML = `<p class="loading">The forecast service could not be reached (${esc(e.message)}). Try again shortly.</p>`; return; }
+  const S = fcSummary(days), adv = fcAdvice(R, S);
+  const head = `Next 7 days: ${fx(S.rain7)} mm of rain on ${S.rainDays7} day${S.rainDays7 === 1 ? '' : 's'}, up to ${fx(Math.max(...days.slice(0, 7).map(d => d.tmax)))} °C`;
+  box.innerHTML = `${verdict(chip(S.severe.length ? 'Heat alert' : S.dry.len >= 7 ? 'Dry spell ahead' : S.flood ? 'Heavy rain' : 'Forecast', S.severe.length || S.flood ? 'bad' : S.dry.len >= 7 || S.hot.length ? 'warn' : 'good'), head, `Forecast for the centre of ${esc(R.name)} (${c[0]}°, ${c[1]}°), updated hourly. Advice combines the forecast with this season's satellite record.`)}
+    <div class="advice">${adv.map(([t, h, x]) => `<div class="adv ${t}"><b>${esc(h)}</b><p>${esc(x)}</p></div>`).join('')}</div>
+    <div><h3 class="chh">16-day outlook</h3>${fcChart(days)}<div class="cmpkey"><span><i style="background:var(--water)"></i>Daily rain (paler: days 8–16, less certain)</span><span><i style="background:var(--bad)"></i>Maximum temperature</span></div></div>
+    <div class="rtable"><table class="rtab small fctab"><thead><tr><th>Day</th><th>Rain</th><th>Chance</th><th>Max</th><th>Min</th><th>Crop water use</th></tr></thead><tbody>${days.slice(0, 10).map(d => `<tr${d.tmax >= 38 ? ' class="hotrow"' : ''}><td>${dayName(d.date)}</td><td>${fx(d.rain, 1)} mm</td><td>${isNum(d.prob) ? d.prob + '%' : '–'}</td><td>${fx(d.tmax)} °C</td><td>${fx(d.tmin)} °C</td><td>${fx(d.et0, 1)} mm</td></tr>`).join('')}</tbody></table></div>
+    <p class="note">Weather data by <a href="https://open-meteo.com/" target="_blank" rel="noopener">Open-Meteo.com</a> (CC BY 4.0), from national weather-model forecasts. Crop water use is reference evapotranspiration (FAO-56). Forecasts beyond about 7 days are uncertain; this is guidance, not an official warning: follow the Ghana Meteorological Agency for those.</p>`;
+};
+
+/* ---------------- irrigation planner (FAO-56 crop water need against reservoir water) ---------------- */
+const IRR_CROPS = [
+  { key: 'tomato', name: 'Tomato', kc: [0.6, 1.15, 0.8], st: [30, 40, 40, 25] },
+  { key: 'onion', name: 'Onion', kc: [0.7, 1.05, 0.75], st: [15, 25, 70, 40] },
+  { key: 'pepper', name: 'Pepper', kc: [0.6, 1.05, 0.9], st: [30, 35, 40, 20] },
+  { key: 'leafy', name: 'Leafy vegetables', kc: [0.7, 1.0, 0.95], st: [20, 30, 15, 10] },
+  { key: 'maize', name: 'Maize', kc: [0.3, 1.2, 0.6], st: [20, 35, 40, 30] },
+  { key: 'rice', name: 'Rice (paddy)', kc: [1.05, 1.2, 0.9], st: [30, 30, 60, 30], paddy: true },
+];
+const IRR_EFF = [['Furrow or basin (50%)', 0.5], ['Sprinkler (70%)', 0.7], ['Drip (90%)', 0.9]];
+let IRR = Object.assign({ crop: 'tomato', month: ((new Date().getUTCMonth() + 1) % 12) + 1, eff: 0.5, depth: 1.5, share: 60 }, store.get('agrointel.irr', {}));
+function cropNeed(c, startMonth, pet, rain, eff) {
+  // daily FAO-56 crop coefficient curve x monthly reference ET, minus effective rainfall; returns mm per month of season and totals
+  const len = c.st.reduce((a, b) => a + b, 0), months = {}; let nir = 0, etc = 0, peff = 0;
+  const kcAt = d => { const [a, b, cc] = c.st, [ki, km, ke] = c.kc;
+    if (d < a) return ki; if (d < a + b) return ki + (km - ki) * (d - a) / b; if (d < a + b + cc) return km; return km + (ke - km) * (d - a - b - cc) / c.st[3]; };
+  const y = 2025;
+  for (let d = 0; d < len; d++) {
+    const dt = new Date(Date.UTC(y, startMonth - 1, 1 + d)), mi = dt.getUTCMonth(), dim = new Date(Date.UTC(dt.getUTCFullYear(), mi + 1, 0)).getUTCDate();
+    const P = rain[mi] || 0, pe = (P < 250 ? P * (125 - 0.2 * P) / 125 : 125 + 0.1 * P) / dim;
+    const e = kcAt(d) * (pet[mi] || 0) / dim + (c.paddy ? 4 : 0);
+    const need = Math.max(0, e - pe); nir += need; etc += e; peff += Math.min(pe, e);
+    const k = MON[mi]; months[k] = months[k] || { need: 0, rain: 0, order: Object.keys(months).length }; months[k].need += e; months[k].rain += Math.min(pe, e);
+  }
+  if (c.paddy) nir += 150; // land soaking and puddling
+  return { len, nir, gir: nir / eff, etc, peff, months };
+}
+VIEWS.water.irr = R => {
+  if (!D.res || !D.res.items.length) return P(verdict(chip('Not yet', 'neu'), 'The irrigation planner needs reservoir data', 'It appears after the next pipeline run.'));
+  const rk = R.level === 'district' ? R.region : R.key, items = [...D.res.items].sort((a, b) => (b.region === rk) - (a.region === rk));
+  if (!items.find(i => i.key === state.res)) state.res = items[0].key;
+  return P(`<div class="irrgrid"><form class="irrform" id="irrForm" onsubmit="return false">
+      <label class="rf"><span>Reservoir</span><select class="pick" id="irrRes">${items.map(i => `<option value="${i.key}"${i.key === state.res ? ' selected' : ''}>${esc(i.name)} (${esc(resRegion(i))})</option>`).join('')}</select></label>
+      <label class="rf"><span>Crop</span><select class="pick" id="irrCrop">${IRR_CROPS.map(c => `<option value="${c.key}"${c.key === IRR.crop ? ' selected' : ''}>${c.name}</option>`).join('')}</select></label>
+      <label class="rf"><span>Planting month</span><select class="pick" id="irrMonth">${MONTH.map((m, i) => `<option value="${i + 1}"${i + 1 === IRR.month ? ' selected' : ''}>${m}</option>`).join('')}</select></label>
+      <label class="rf"><span>Irrigation method</span><select class="pick" id="irrEff">${IRR_EFF.map(([l, v]) => `<option value="${v}"${v === IRR.eff ? ' selected' : ''}>${l}</option>`).join('')}</select></label>
+      <label class="rf"><span>Usable water depth: <b id="irrDepthV">${IRR.depth} m</b></span><input type="range" id="irrDepth" min="0.5" max="4" step="0.25" value="${IRR.depth}"></label>
+      <label class="rf"><span>Share of water for irrigation: <b id="irrShareV">${IRR.share}%</b></span><input type="range" id="irrShare" min="10" max="90" step="5" value="${IRR.share}"></label>
+    </form><div id="irrOut"><p class="loading">Calculating…</p></div></div>
+    <p class="note">Crop water need: FAO-56 crop coefficients × MODIS potential evapotranspiration (2001–2020 average for each month), minus effective rainfall from the 1991–2020 rainfall normal (USDA-SCS method). Paddy rice adds 4 mm/day percolation and 150 mm for land soaking. Water available: current open-water area × usable depth × irrigation share, minus open-water evaporation over the season. Area is measured; depth is your estimate, so treat results as a planning range, not a design.</p>`);
+};
+AFTER.water.irr = async R => {
+  const calc = async () => {
+    const it = D.res.items.find(i => i.key === state.res), c = IRR_CROPS.find(x => x.key === IRR.crop), st = it.stats || {};
+    let U; try { U = await unitData('region', it.region || (R.level === 'district' ? R.region : R.key)); } catch (e) { U = null; }
+    const V = U ? asView(U, U.current_year) : R;
+    const pet = (V.balance && V.balance.pet) || [], rain = V.rain.normal;
+    const need = cropNeed(c, IRR.month, pet, rain, IRR.eff);
+    const area = st.area_km2 || 0, seasonPet = Object.values(need.months).length ? need.len / 30.4 * (pet.reduce((a, b) => a + b, 0) / 12) : 0;
+    const store_m3 = area * 1e6 * IRR.depth * IRR.share / 100, evap_m3 = area * 1e6 * 0.8 * 1.05 * seasonPet / 1000 * IRR.share / 100;
+    const avail = Math.max(0, store_m3 - evap_m3), perHa = need.gir * 10, ha = perHa > 0 ? avail / perHa : 0;
+    const others = IRR_CROPS.map(x => { const n = cropNeed(x, IRR.month, pet, rain, IRR.eff); return [x.name, n.gir * 10 > 0 ? avail / (n.gir * 10) : 0, n.gir]; });
+    const omax = Math.max(...others.map(o => o[1]), 1), mk = Object.entries(need.months).sort((a, b) => a[1].order - b[1].order);
+    const mmax = niceMax(Math.max(...mk.map(([, v]) => v.need)) || 1);
+    const big = ha >= 1000 ? fx(Math.round(ha / 100) * 100) : ha >= 100 ? fx(Math.round(ha / 10) * 10) : fx(ha, 0);
+    $('#irrOut').innerHTML = `<div class="irrbig"><small>${esc(it.name)} could irrigate about</small><b>${Number(big.replace(/,/g, '')).toLocaleString('en-GB')} ha</b><span>of ${c.name.toLowerCase()} planted in ${MONTH[IRR.month - 1]}</span></div>
+      <div class="facts">${fact('Water for irrigation', fx(avail / 1e6, 1) + 'M m³', `${fx(area, 1)} km² × ${IRR.depth} m × ${IRR.share}%, less evaporation`)}${fact('Water per hectare', Math.round(perHa).toLocaleString('en-GB') + ' m³', `${fx(need.gir)} mm over ${need.len} days`)}${fact('Rain does', fx(need.peff / need.etc * 100, 0) + '%', 'of the crop\'s water need in a normal year')}</div>
+      <div><h3 class="chh">Monthly water need of the crop</h3><div class="irrbars">${mk.map(([m, v]) => `<div class="ib"><div class="ibcol"><span class="ibneed" style="height:${(v.need / mmax * 100).toFixed(1)}%"><span class="ibrain" style="height:${(v.rain / v.need * 100).toFixed(1)}%"></span></span></div><small>${m}</small><em>${fx(v.need)}</em></div>`).join('')}</div>
+        <div class="cmpkey"><span><i style="background:var(--water)"></i>Covered by normal rainfall</span><span><i style="background:var(--sun)"></i>Must come from irrigation</span><span>mm per month</span></div></div>
+      <div><h3 class="chh">Same water, other crops (${MONTH[IRR.month - 1]} planting)</h3><div class="hbars">${others.sort((a, b) => b[1] - a[1]).map(([n, h, g]) => `<div class="hb${n === c.name ? ' on' : ''}"><span>${esc(n)}</span><i style="width:${(h / omax * 100).toFixed(1)}%"></i><b>${h >= 100 ? fx(Math.round(h / 10) * 10) : fx(h, 0)} ha</b></div>`).join('')}</div></div>`;
+  };
+  const set = (k, v) => { IRR[k] = v; store.set('agrointel.irr', IRR); calc(); };
+  $('#irrRes').onchange = e => { state.res = e.target.value; save(); calc(); };
+  $('#irrCrop').onchange = e => set('crop', e.target.value);
+  $('#irrMonth').onchange = e => set('month', Number(e.target.value));
+  $('#irrEff').onchange = e => set('eff', Number(e.target.value));
+  $('#irrDepth').oninput = e => { $('#irrDepthV').textContent = e.target.value + ' m'; set('depth', Number(e.target.value)); };
+  $('#irrShare').oninput = e => { $('#irrShareV').textContent = e.target.value + '%'; set('share', Number(e.target.value)); };
+  await calc();
+};
+
+/* ---------------- early warning (machine-learning model trained in the pipeline) ---------------- */
+function ewFor(R) {
+  const M = D.model; if (!M) return null;
+  const keys = R.level === 'district' ? [R.key] : (D.sum.district ? D.sum.district.units.filter(u => u.region === R.key).map(u => u.key) : []);
+  const now = keys.map(k => M.predicted[k]).filter(isNum), years = {};
+  keys.forEach(k => Object.entries(M.backtest[k] || {}).forEach(([y, [p, o]]) => { (years[y] = years[y] || { p: [], o: [] }).p.push(p); years[y].o.push(o); }));
+  const avg = a => a.reduce((x, y) => x + y, 0) / a.length;
+  return { M, n: keys.length, now: now.length ? avg(now) : null, hist: Object.entries(years).sort().map(([y, v]) => [y, avg(v.p), avg(v.o)]) };
+}
+const ewLevel = p => !isNum(p) ? ['No prediction', 'neu'] : p >= .5 ? ['High chance of a poor season', 'bad'] : p >= .25 ? ['Elevated chance', 'warn'] : ['Low chance', 'good'];
+VIEWS.risk.ew = R => {
+  const E = ewFor(R); if (!E) return P(verdict(chip('Not yet', 'neu'), 'The early-warning model appears after the next pipeline run', 'It trains itself on every district\'s past seasons.'));
+  const M = E.M, [lv, cls] = ewLevel(E.now), pct = isNum(E.now) ? Math.round(E.now * 100) : null;
+  const live = new Date().getUTCMonth() + 1 <= M.target_months[1] && new Date().getUTCFullYear() === M.current_year;
+  const W = 720, H = 170, L = 34, Rr = 8, T = 10, B = 22, iw = W - L - Rr, ih = H - T - B, band = iw / Math.max(1, E.hist.length); let s = '';
+  [0, .5, 1].forEach(v => { const y = T + ih - ih * v; s += `<line class="grid-l" x1="${L}" x2="${W - Rr}" y1="${y}" y2="${y}"/><text class="ax" x="${L - 5}" y="${y + 3}" text-anchor="end">${v * 100}%</text>`; });
+  E.hist.forEach(([y, p, o], i) => { const x = L + band * i, h = ih * p;
+    s += `<rect x="${(x + band * .18).toFixed(1)}" y="${(T + ih - h).toFixed(1)}" width="${(band * .64).toFixed(1)}" height="${Math.max(h, .8).toFixed(1)}" rx="2" fill="${p >= .5 ? 'var(--bad)' : p >= .25 ? 'var(--warn)' : 'var(--leaf)'}"><title>${y}: predicted ${Math.round(p * 100)}%, ${o >= .5 ? 'poor season happened' : 'normal season'}</title></rect>`;
+    if (o >= .5) s += `<circle cx="${(x + band / 2).toFixed(1)}" cy="${T + 6}" r="4.5" fill="var(--ink)"/>`;
+    if (i % 3 === 0 || i === E.hist.length - 1) s += `<text class="ax" x="${(x + band / 2).toFixed(1)}" y="${H - 6}" text-anchor="middle">${y}</text>`; });
+  const wmax = Math.max(...M.coef.map(Math.abs));
+  return P(`${verdict(chip(lv, cls), isNum(pct) ? `${pct}% chance that ${esc(R.name)}${R.level === 'region' ? ' Region' : ''} has a poor ${M.current_year} season` : 'No prediction for this year', `A poor season means crop greenness in ${MONTH[M.target_months[0] - 1]}–${MONTH[M.target_months[1] - 1]} among the worst fifth of years for that district. The model reads the season to the end of ${MONTH[M.cut_month - 1]}, about two months ahead${R.level === 'region' ? `; region figure is the average of its ${E.n} districts` : ''}. ${live ? '' : `For ${M.current_year} that window has passed: compare with Crop → Vegetation health.`}`)}
+    <div class="facts">${fact('Tested accuracy', isNum(M.cv_accuracy) ? Math.round(M.cv_accuracy * 100) + '%' : '–', 'each year predicted without seeing it')}${fact('Skill (AUC)', fx(M.cv_auc, 2), '0.5 = guessing, 1 = perfect')}${fact('When it raises the alarm', isNum(M.top20_hit_rate) ? Math.round(M.top20_hit_rate * 100) + '%' : '–', `are real poor seasons (base rate ${Math.round(M.base_rate * 100)}%)`)}</div>
+    <div><h3 class="chh">How the model would have called past seasons here</h3>${svg(W, H, s, 'Predicted chance of a poor season by year')}
+      <div class="cmpkey"><span><i style="background:var(--bad)"></i>Predicted 50% or more</span><span><i style="background:var(--warn)"></i>25–50%</span><span><i style="background:var(--leaf)"></i>Under 25%</span><span><i style="background:var(--ink);border-radius:50%;width:9px;height:9px"></i>A poor season actually happened</span></div></div>
+    <div class="split"><div><h3 class="chh">What drives the prediction</h3><p class="note" style="margin:0 0 8px">Bar length = how much each signal matters. Red: higher values make a poor season more likely; green: less likely.</p><div class="hbars ewbars">${M.features.map((f, i) => [M.labels[f], M.coef[i]]).sort((a, b) => Math.abs(b[1]) - Math.abs(a[1])).map(([l, c]) => `<div class="hb"><span>${esc(l)}</span><i style="width:${(Math.abs(c) / wmax * 100).toFixed(1)}%;background:${c > 0 ? 'var(--bad)' : 'var(--good)'}"></i></div>`).join('')}</div></div>
+      <div><h3 class="chh">About the model</h3><p class="note" style="margin:0">Logistic regression trained on ${M.n.toLocaleString('en-GB')} district-seasons (${M.years[0]}–${M.years[1]}) from this platform's own satellite record. It is retrained every week. Scores are honest out-of-sample results: each year was predicted by a model trained on the other years only. It predicts greenness, not yield, and does not yet use seasonal rainfall forecasts.</p></div></div>`);
+};
+
+/* ---------------- "Ask AgroIntel" assistant ----------------
+   Two engines. Built-in: answers in English from this site's data and the forecast, no server needed.
+   AI mode: when config.js sets assistantUrl, the same grounded context goes to a small proxy that asks a
+   large language model to answer in plain language, in the farmer's own language. */
+const AI_CFG = (window.AGROINTEL_CONFIG || {});
+const LANGS = [['en', 'English'], ['tw', 'Twi'], ['dag', 'Dagbani'], ['ha', 'Hausa'], ['ee', 'Ewe'], ['fr', 'French']];
+let CHAT = { open: false, lang: 'en', msgs: [], ctx: null };
+const normName = n => n.toLowerCase().replace(/\s+(municipal|metropolitan|district|municipality)\b.*$/, '').replace(/-/g, ' ').replace(/\s+/g, ' ').trim();
+function findPlace(q) {
+  const t = ' ' + q.toLowerCase().replace(/[^a-z\s-]/g, ' ').replace(/-/g, ' ').replace(/\s+/g, ' ') + ' ';
+  let best = null;
+  const test = (alias, hit) => { if (alias.length >= 3 && t.includes(' ' + alias + ' ') && (!best || alias.length > best.len)) best = { ...hit, len: alias.length }; };
+  (D.sum.district ? D.sum.district.units : []).forEach(u => { test(normName(u.name), { level: 'district', key: u.key }); test(u.name.toLowerCase().replace(/-/g, ' ').replace(/\s+/g, ' '), { level: 'district', key: u.key }); });
+  D.meta.regions.forEach(r => { test(r.name.toLowerCase().replace(/-/g, ' '), { level: 'region', key: r.key }); test(r.name.toLowerCase().replace(/-/g, ' ') + ' region', { level: 'region', key: r.key }); });
+  if (D.res) D.res.items.forEach(i => test(i.name.toLowerCase().split(' ')[0], { reservoir: i.key, level: 'region', key: i.region || state.region }));
+  return best;
+}
+const INTENTS = [
+  ['predict', /\b(predict\w*|chance|likely|outlook|early warning|will .*season|poor season)\b/],
+  ['plant', /\b(plant|planting|sow|sowing|when.*(start|begin)|seed)\b/],
+  ['heat', /\b(heat|hot|temperature|warm)\b/],
+  ['rain', /\b(rain|rains|rainfall|wet|forecast|weather|storm)\b/],
+  ['drought', /\b(drought|dry|spi)\b/],
+  ['crop', /\b(crop|crops|grow|suitable|which|cocoa|maize|rice|yam|cassava|sorghum|millet|groundnut|soy)\b/],
+  ['soil', /\b(soil|fertili[sz]er|lime|nitrogen|ph|compost|manure)\b/],
+  ['water', /\b(water|irrigat\w*|dam|reservoir|tono|vea|bontanga|weija|bui|volta|golinga|kpong)\b/],
+  ['fire', /\b(fire|fires|burn|burning|forest|trees|deforest\w*|mining|galamsey)\b/],
+  ['risk', /\b(risk|danger|safe|flood|floods|insurance)\b/],
+  ['season', /\b(season|harvest|yield|crops? doing|how is|status|condition|health|green)\b/],
+];
+async function aiContext(place) {
+  const lv = place ? place.level : curLevel(), key = place ? place.key : curKey();
+  const U = await unitData(lv, key), V = asView(U, U.current_year);
+  let F = null; const c = unitCentre(V);
+  if (c) { try { F = await getForecast(c[0], c[1]); } catch (e) { F = null; } }
+  return { V, F, S: F ? fcSummary(F) : null, place };
+}
+function builtInAnswer(q, C) {
+  const { V, F, S } = C, nm = V.level === 'district' ? V.name : V.name + ' Region', out = [];
+  let intents = INTENTS.filter(([, re]) => re.test(q.toLowerCase())).map(([k]) => k);
+  if (/\b(hi|hello|help|what can you)\b/i.test(q) && !intents.length) return { html: `<p>I can tell you about rain, heat, planting time, drought, crops, soil, reservoirs, fires and risk for any district in Ghana. Name a place, for example <i>“When should I plant in Tolon?”</i></p>`, intents: [] };
+  if (!intents.length) intents = ['season', 'rain'];
+  const s = V.season || {}, rn = V.rain, add = (h) => out.push(h);
+  for (const it of intents.slice(0, 3)) {
+    if (it === 'plant' && S) { const a = fcAdvice(V, S).find(x => ['Hold off planting', 'Planting window', 'Wait for steadier rain', 'Dry spell ahead', 'Rain looks adequate', 'Dry season'].includes(x[1]));
+      add(`<p><b>${esc(a ? a[1] : 'Planting')}.</b> ${esc(a ? a[2] : '')}${s.onset ? ` This year the rains became established on ${fmtDate(s.onset)}${isNum(s.onset_normal_doy) ? ` (usual: ${doyStr(s.onset_normal_doy)})` : ''}.` : ''}</p>`); }
+    if (it === 'predict') { const E = ewFor(V); add(E && isNum(E.now) ? `<p><b>Early warning.</b> The AI model gives ${nm} a ${Math.round(E.now * 100)}% chance of a poor ${E.M.current_year} season (crop greenness in ${MONTH[E.M.target_months[0] - 1]}–${MONTH[E.M.target_months[1] - 1]} among the worst fifth of years), based on the season up to ${MONTH[E.M.cut_month - 1]}. Tested on past years, it was right ${Math.round(E.M.cv_accuracy * 100)}% of the time.</p>` : '<p>The early-warning model has no prediction for this place yet.</p>'); }
+    if (it === 'rain') { add(`<p><b>Rain.</b> So far this year ${nm} has had ${fx(rn.total)} mm, ${pctTxt(rn.anomaly_pct)} for January–${MONTH[rn.last_month - 1]}.${S ? ` The next 7 days: about ${fx(S.rain7)} mm on ${S.rainDays7} day${S.rainDays7 === 1 ? '' : 's'}${S.dry.len >= 7 ? `, then about ${S.dry.len} dry days from ${dayName(S.dry.start)}` : ''}.` : ''}</p>`); }
+    if (it === 'heat' && S) add(`<p><b>Heat.</b> ${S.severe.length ? `${S.severe.length} day${S.severe.length > 1 ? 's' : ''} at 38 °C or more are forecast, peaking at ${fx(S.peak.tmax)} °C on ${dayName(S.peak.date)}. Water crops early morning or evening, shade and water livestock, and avoid hard work at midday.` : S.hot.length ? `${S.hot.length} hot day${S.hot.length > 1 ? 's' : ''} (35 °C or more), peak ${fx(S.peak.tmax)} °C on ${dayName(S.peak.date)}.` : `No days above 35 °C in the next two weeks (peak ${fx(S.peak.tmax)} °C).`}</p>`);
+    if (it === 'drought') add(`<p><b>Drought.</b> The 3-month drought index is ${sgn(rn.spi3_latest, 1)} (${esc((rn.spi_class || '').toLowerCase())}) at the end of ${MONTH[rn.spi_ref_month - 1]}. Drought risk is ${fx(V.risk.drought)}/100.</p>`);
+    if (it === 'crop' && V.suitability) { const best = V.suitability.filter(c => c.class === 'S1').slice(0, 4), lim = V.suitability.filter(c => c.limits && c.limits.length).slice(0, 2);
+      add(`<p><b>Crops.</b> Best suited to ${nm}'s climate and soil: ${esc(andJoin((best.length ? best : V.suitability.slice(0, 3)).map(c => c.name)))}.${lim.length ? ` Watch out: ${esc(lim.map(c => `${c.name} (${c.limits.join(', ')})`).join('; '))}.` : ''}</p>`); }
+    if (it === 'soil' && V.soil) { const so = V.soil; add(`<p><b>Soil.</b> Typical topsoil here is ${esc((so.texture.name || '').toLowerCase())} with pH ${fx(so.ph.value, 1)} (${esc(so.ph.rating.toLowerCase())}), ${esc(so.oc.rating.toLowerCase())} organic carbon and ${esc(so.n.rating.toLowerCase())} nitrogen.${['Extremely acid', 'Strongly acid'].includes(so.ph.rating) ? ' Liming or wood ash helps on acidic soil.' : ''}${['Very low', 'Low'].includes(so.n.rating) ? ' Manure, compost or legumes in rotation add nitrogen.' : ''} These are satellite-model estimates: a soil test is best before buying fertiliser.</p>`); }
+    if (it === 'water' && D.res) { const rk = V.level === 'district' ? V.region : V.key, rs = D.res.items.filter(i => i.region === rk || (C.place && C.place.reservoir === i.key));
+      add(rs.length ? `<p><b>Reservoirs.</b> ${rs.map(i => { const t = i.stats || {}; return `${esc(i.name)}: ${fx(t.area_km2, 1)} km² of water in ${ymTxt(t.latest_month)}, ${isNum(t.pct_normal) ? t.pct_normal + '% of usual' : 'no usual figure yet'}`; }).join('; ')}. Use the irrigation planner to see how many hectares that water can support.</p>` : `<p><b>Water.</b> No monitored reservoir in this region. ${S && S.et07 > S.rain7 ? `This week crops will use about ${fx(S.et07 - S.rain7)} mm more water than the rain gives (${fx((S.et07 - S.rain7) * 10)} m³ per hectare).` : ''}</p>`); }
+    if (it === 'fire' && V.change) { const F2 = changeFacts(V); add(`<p><b>Land change.</b> ${fx(F2.lossTot, 1)} km² of tree cover has been lost here since 2001${isNum(F2.lossPct) ? ` (${fx(F2.lossPct, 1)}% of the 2000 forest)` : ''}. In a typical year about ${fx(F2.bAvg)} km² burns, mostly in the dry season.</p>`); }
+    if (it === 'risk') add(`<p><b>Risk.</b> Composite agricultural risk is ${fx(V.risk.composite)}/100 (${level(V.risk.composite)[0].toLowerCase()}): drought ${fx(V.risk.drought)}, flood ${fx(V.risk.flood)}, degradation ${fx(V.risk.degradation)}.</p>`);
+    if (it === 'season') add(`<p><b>This season.</b> ${nm} is rated <b>${esc((V.status || 'unknown').toLowerCase())}</b>. Vegetation condition is ${fx(V.ndvi.vci)} out of 100 (${vciClass(V.ndvi.vci)[0].toLowerCase()}; 50 is typical). I can't predict yields, but this is how the crops look from space.</p>`);
+  }
+  return { html: out.join('') || '<p>I could not find data for that yet.</p>', intents };
+}
+function aiPayload(q, C) {
+  const { V, S, F } = C, s = V.season || {}, rk = V.level === 'district' ? V.region : V.key;
+  return { question: q.slice(0, 500), language: (LANGS.find(l => l[0] === CHAT.lang) || LANGS[0])[1], context: {
+    place: V.level === 'district' ? `${V.name} district, ${(summary(V.region) || {}).name} Region, Ghana` : `${V.name} Region, Ghana`, today: new Date().toISOString().slice(0, 10),
+    season: { status: V.status, rain_mm_to_date: Math.round(V.rain.total), rain_vs_normal_pct: V.rain.anomaly_pct && Math.round(V.rain.anomaly_pct), data_to_month: MONTH[V.rain.last_month - 1],
+      spi3: V.rain.spi3_latest, onset: s.onset, usual_onset: doyStr(s.onset_normal_doy), cessation: s.cessation, usual_cessation: doyStr(s.cessation_normal_doy), dry_spells: s.dry_spells, vci: V.ndvi.vci },
+    risk: V.risk, best_crops: (V.suitability || []).slice(0, 5).map(c => ({ crop: c.name, class: c.class, limits: c.limits })),
+    soil: V.soil && { texture: V.soil.texture.name, ph: V.soil.ph, organic_carbon: V.soil.oc, nitrogen: V.soil.n, phosphorus: V.soil.p },
+    reservoirs: D.res ? D.res.items.filter(i => i.region === rk).map(i => ({ name: i.name, area_km2: i.stats && i.stats.area_km2, pct_of_usual: i.stats && i.stats.pct_normal, month: i.stats && i.stats.latest_month })) : [],
+    forecast_16_days: F ? F.map(d => ({ date: d.date, rain_mm: d.rain, rain_chance: d.prob, tmax: d.tmax, tmin: d.tmin, et0_mm: d.et0 })) : null,
+    forecast_advice: S ? fcAdvice(V, S).map(a => a[1] + ': ' + a[2]) : null,
+    early_warning: (() => { const E = ewFor(V); return E && isNum(E.now) ? { chance_of_poor_season_pct: Math.round(E.now * 100), predicted_from_data_to: MONTH[E.M.cut_month - 1], tested_accuracy_pct: Math.round(E.M.cv_accuracy * 100) } : null; })() } };
+}
+function chatHTML() {
+  return `<div class="chat-head"><div><b>Ask AgroIntel</b><small id="chatCtx"></small></div>
+      <div class="chat-tools">${AI_CFG.assistantUrl ? `<select id="chatLang" aria-label="Answer language">${LANGS.map(([k, l]) => `<option value="${k}"${k === CHAT.lang ? ' selected' : ''}>${l}</option>`).join('')}</select>` : ''}<button type="button" class="chat-x" id="chatX" aria-label="Close">×</button></div></div>
+    <div class="chat-log" id="chatLog" aria-live="polite"></div>
+    <div class="chat-sug" id="chatSug"></div>
+    <form class="chat-in" id="chatForm"><button type="button" class="chat-mic" id="chatMic" aria-label="Speak your question" hidden><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M12 3a3 3 0 0 0-3 3v6a3 3 0 0 0 6 0V6a3 3 0 0 0-3-3z M5 11a7 7 0 0 0 14 0 M12 18v3"/></svg></button>
+      <input id="chatQ" autocomplete="off" placeholder="e.g. When should I plant in Tolon?" aria-label="Your question" maxlength="400"><button class="btn primary" type="submit">Ask</button></form>
+    <p class="chat-foot">${AI_CFG.assistantUrl ? 'Answers by an AI model, using only this site\'s data and the forecast. Check important decisions with your extension officer.' : 'Answers come straight from this site\'s satellite data and the Open-Meteo forecast. Check important decisions with your extension officer.'}</p>`;
+}
+function chatPush(who, html) { CHAT.msgs.push([who, html]); const log = $('#chatLog'); if (!log) return;
+  const d = document.createElement('div'); d.className = 'msg ' + who; d.innerHTML = html; log.appendChild(d); log.scrollTop = log.scrollHeight;
+  if (who === 'bot' && 'speechSynthesis' in window) { const b = document.createElement('button'); b.type = 'button'; b.className = 'speak'; b.textContent = '🔊 Read aloud';
+    b.onclick = () => { speechSynthesis.cancel(); const u = new SpeechSynthesisUtterance(d.innerText.replace('🔊 Read aloud', '')); u.lang = 'en-GB'; u.rate = .95; speechSynthesis.speak(u); }; d.appendChild(b); } }
+const SUGS = ['When should I plant?', 'Is heat coming this week?', 'Which crops suit this area?', 'How full is the dam?', 'Is drought building?', 'What is my soil like?'];
+async function ask(q) {
+  q = q.trim(); if (!q) return;
+  chatPush('me', esc(q)); $('#chatQ').value = '';
+  const wait = document.createElement('div'); wait.className = 'msg bot typing'; wait.textContent = 'Checking the data…'; $('#chatLog').appendChild(wait);
+  try {
+    const place = findPlace(q), C = await aiContext(place);
+    $('#chatCtx').textContent = C.V.level === 'district' ? `${C.V.name} · ${(summary(C.V.region) || {}).name} Region` : `${C.V.name} Region`;
+    let html;
+    if (AI_CFG.assistantUrl) {
+      try { const r = await fetch(AI_CFG.assistantUrl, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(aiPayload(q, C)) });
+        if (!r.ok) throw new Error('AI service ' + r.status); const j = await r.json();
+        html = esc(j.answer || '').split(/\n{2,}/).map(p => `<p>${p.replace(/\n/g, '<br>').replace(/\*\*(.+?)\*\*/g, '<b>$1</b>')}</p>`).join('');
+      } catch (e) { html = builtInAnswer(q, C).html + `<p class="note">(The AI service was unavailable, so this answer comes from the built-in assistant.)</p>`; }
+    } else html = builtInAnswer(q, C).html;
+    wait.remove(); chatPush('bot', html + `<p class="src">${esc(C.V.level === 'district' ? C.V.name : C.V.name + ' Region')} · satellite data to ${fmtDate(D.meta.rain_latest)}${C.F ? ' · forecast: Open-Meteo' : ''}</p>`);
+  } catch (e) { wait.remove(); chatPush('bot', `<p>Sorry, I could not load the data (${esc(e.message)}).</p>`); }
+}
+function buildChat() {
+  if ($('#chatFab')) return;
+  const fab = document.createElement('button'); fab.id = 'chatFab'; fab.type = 'button'; fab.className = 'chat-fab'; fab.setAttribute('aria-label', 'Ask AgroIntel');
+  fab.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 5h16v11H9l-5 4z M8 10h8 M8 13h5"/></svg><span>Ask AgroIntel</span>';
+  const panel = document.createElement('section'); panel.id = 'chatPanel'; panel.className = 'chat'; panel.hidden = true; panel.setAttribute('aria-label', 'Ask AgroIntel'); panel.innerHTML = chatHTML();
+  document.body.append(fab, panel);
+  const open = v => { CHAT.open = v; panel.hidden = !v; fab.hidden = v; if (v) { $('#chatQ').focus(); if (!CHAT.msgs.length) chatPush('bot', `<p>Hello! Ask me about rain, heat, planting, crops, soil, dams or risk for any district in Ghana. I'll answer from satellite data and the latest forecast.</p>`); } };
+  fab.onclick = () => open(true); $('#chatX').onclick = () => open(false);
+  $('#chatSug').innerHTML = SUGS.map(s => `<button type="button" class="chip-b">${s}</button>`).join('');
+  $$('#chatSug .chip-b').forEach(b => b.onclick = () => ask(b.textContent));
+  $('#chatForm').onsubmit = e => { e.preventDefault(); ask($('#chatQ').value); };
+  const ls = $('#chatLang'); if (ls) ls.onchange = e => { CHAT.lang = e.target.value; };
+  const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+  if (SR) { const mic = $('#chatMic'); mic.hidden = false; mic.onclick = () => { const r = new SR(); r.lang = 'en-GB'; r.interimResults = false; mic.classList.add('on');
+    r.onresult = e => { const t = e.results[0][0].transcript; $('#chatQ').value = t; ask(t); }; r.onend = () => mic.classList.remove('on'); r.onerror = () => mic.classList.remove('on'); r.start(); }; }
+}
+
 function syncPickers() {
   $('#region').value = state.region;
   const ds = D.sum.district ? D.sum.district.units.filter(u => u.region === state.region).sort((a, b) => a.name.localeCompare(b.name)) : [];
@@ -1135,6 +1446,7 @@ async function boot() {
   try {
     [D.meta, D.geo] = await Promise.all([getJSON('data/meta.json'), getJSON('data/regions.geojson')]);
     if (D.meta.farms) D.farms = await getJSON('data/farms.json').catch(() => null);
+    if (D.meta.model) D.model = await getJSON('data/model.json').catch(() => null);
     if (D.meta.reservoirs) [D.res, D.resGeo] = await Promise.all([getJSON('data/reservoirs.json').catch(() => null), getJSON('data/reservoirs.geojson').catch(() => null)]);
   } catch (e) {
     document.body.innerHTML = `<p class="loading">Could not load data (${esc(e.message)}). Run the pipeline or <code>python pipelines/make_sample_data.py</code> first.</p>`; return;
@@ -1156,6 +1468,7 @@ async function boot() {
   syncPickers();
   $('#asof').textContent = `Rain to ${fmtDay(D.meta.rain_latest)} ${D.meta.rain_latest.slice(0, 4)}`;
   buildLanding();
+    buildChat();
   window.addEventListener('hashchange', route);
   route();
 }

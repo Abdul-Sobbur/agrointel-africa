@@ -431,7 +431,7 @@ def main() -> None:
     if not args.no_districts and DISTRICTS_GEOJSON.exists():
         levels.append(("district", json.loads(DISTRICTS_GEOJSON.read_text())))
 
-    summaries = {}
+    summaries, full_units = {}, {}
     for level, geo in levels:
         feats = geo["features"]
         keys = [f["properties"]["key"] for f in feats]
@@ -452,6 +452,7 @@ def main() -> None:
                     "capital": meta["capital"] if level == "region" else None, "zone": meta["zone"],
                     "regime": meta["regime"], "forest": meta["forest"], **static, "years": years}
             (out_dir / f"{k}.json").write_text(json.dumps(unit, separators=(",", ":")))
+            full_units.setdefault(level, []).append(unit)
             units.append({"key": k, "name": name, "region": parent[k], "years": {
                 y: {"rain_anom": b["rain"]["anomaly_pct"], "vci": b["ndvi"]["vci"], "spi3": b["rain"]["spi3_ref"],
                     "risk": {x: b["risk"][x] for x in ("composite", "drought", "flood")}, "status": b["status"]}
@@ -463,6 +464,16 @@ def main() -> None:
         summaries[level] = units
         (WEB_DATA / f"summary_{level}.json").write_text(json.dumps({"units": units}, separators=(",", ":")))
         log.info("%s level done: %d units", level, len(units))
+
+    # Early-warning model (machine learning on the units' own history)
+    model = soft("early-warning model", A.train_early_warning, full_units.get("district") or full_units.get("region", []),
+                 year, default=None)
+    if model:
+        model["level"] = "district" if full_units.get("district") else "region"
+        (WEB_DATA / "model.json").write_text(json.dumps(model, separators=(",", ":")))
+        log.info("early-warning model: %d district-seasons, cross-validated AUC %s, accuracy %s, top-20%% hit rate %s (base %s)",
+                 model["n"], model["cv_auc"], model["cv_accuracy"], model["top20_hit_rate"], model["base_rate"])
+    full_units.clear()
 
     # Reservoirs
     log.info("reservoirs")
@@ -516,7 +527,7 @@ def main() -> None:
         "year": year, "last_month": last_month, "rain_latest": latest.isoformat(),
         "first_year": FIRST_YEAR, "districts": "district" in summaries,
         "maps": maps_meta, "farms": bool(farms_out), "regions": regions_now,
-        "reservoirs": (WEB_DATA / "reservoirs.json").exists(),
+        "reservoirs": (WEB_DATA / "reservoirs.json").exists(), "model": (WEB_DATA / "model.json").exists(),
     }, separators=(",", ":")))
     log.info("done")
 

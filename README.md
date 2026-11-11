@@ -7,7 +7,7 @@ Rainfall, drought, crop health, surface water, risk and farm monitoring for Ghan
 
 > A personal, noncommercial portfolio project. Figures are computed automatically and have not been validated in the field.
 
-## What it does (version 1.0, November 2026)
+## What it does (version 1.1, November 2026)
 
 | Area | Answers | Built from |
 | --- | --- | --- |
@@ -18,6 +18,10 @@ Rainfall, drought, crop health, surface water, risk and farm monitoring for Ghan
 | Farms | How big is this field, how green is it, and has forest been cleared on it? | Leaflet tracing, Sentinel-2, Hansen GFC |
 | Compare | How do two districts, or two seasons, differ? | All of the above |
 | Reports | A printable national, regional or district report with the user's name, organisation, logo and notes | All of the above |
+| Ask AgroIntel | “When should I plant in Tolon?” Answers from the data and forecast; optional AI mode in Twi, Dagbani, Hausa, Ewe, French | Site data, Open-Meteo, optional LLM proxy (`assistant/`, see docs/ASSISTANT.md) |
+| Forecast and advice | Rain, heat and dry spells for the next 16 days, and what to do about them | Open-Meteo |
+| Irrigation planner | How many hectares each reservoir can water, by crop and planting month | FAO-56, MODIS PET, Sentinel-1 reservoir area |
+| Early warning (AI) | Chance of a poor season two months ahead, with tested accuracy | Logistic regression retrained weekly on 2002–present |
 | My workspace | Role-based view (extension, insurance, water, NGO, research, farming) with watched areas, own alert levels and CSV download | All of the above, stored in the browser |
 
 Coverage: 16 regions and 260 districts, every season since 2001 (rainfall since 1981), updated every Monday.

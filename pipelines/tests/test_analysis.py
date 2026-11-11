@@ -150,3 +150,12 @@ def test_reservoir_stats():
     assert s["pct_normal"] == 50 and s["status"] == "Well below usual"
     assert s["full_km2"] == 16.0 and s["fill_pct"] == 50
     assert A.reservoir_stats({}, (2017, 2023)) is None
+
+
+def test_logistic_and_auc():
+    rng = np.random.default_rng(0)
+    x = rng.normal(size=600)
+    y = (rng.random(600) < 1 / (1 + np.exp(-(2.5 * x - 1)))).astype(float)
+    w = A.fit_logistic(np.column_stack([np.ones(600), x]), y, l2=0.1)
+    assert 1.8 < w[1] < 3.3 and -1.6 < w[0] < -0.5
+    assert A.auc(y, x) > 0.8 and A.auc(np.array([1.0, 0.0]), np.array([0.9, 0.1])) == 1.0
